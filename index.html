@@ -1090,12 +1090,20 @@ async function toggleConnect(){
     document.getElementById('deviceName').textContent=bleDevice.name||'RID-Scanner';
     // ★ 连接板子后：停止演示模式，清空虚拟目标
     if(_demoTimer) { clearInterval(_demoTimer); _demoTimer=null; }
+    isSimulating=false;
     clearAllDrones();
-    if(map && centerMarker) { centerMarker.hide(); } // 隐藏默认位置，等板子GPS
-    addLog('info','[系统] 已切换为真机模式，等待板子GPS定位...');
-    // 连接后进入配对流程
+    // 同时清空地图上的中心标记
+    if(map && centerMarker) {
+      try{ map.remove(centerMarker); }catch(e){}
+      centerMarker = null;
+    }
+    if(map){ try{map.clearMap();}catch(e){} }
+    addLog('info','[系统] 已切换为真机模式，等待板子数据...');
+    // lcdfix14：固件已改为连接即授权，无需 PIN 配对，
+    // 固件会在 BLE_GAP_EVENT_CONNECT 后主动推送 PAIR_OK，
+    // 这里保留一个 1.5 秒兜底，防止旧固件不主动推送时界面卡住。
     _connecting=false;
-    showPairDialog();
+    setTimeout(()=>{ if(!isPaired){ onPairResult(true); } }, 1500);
   }catch(e){
     _connecting=false;
     addLog('error','[BLE] 连接失败: '+e.message);
@@ -1120,7 +1128,7 @@ function onDisconnected(){
 }
 function updateConnectionUI(c){
   const b=document.getElementById('statusBadge'),btn=document.getElementById('connectBtn');
-  if(c){b.textContent='已连接(待配对)';b.className='badge connected';btn.textContent='🔌 断开连接';btn.className='btn-connect disconnect';document.getElementById('startBtn').disabled=true;/* 配对成功后才启用 */}
+  if(c){b.textContent='已连接';b.className='badge connected';btn.textContent='🔌 断开连接';btn.className='btn-connect disconnect';}
   else{b.textContent='未连接';b.className='badge';btn.textContent='📡 连接 ESP32-C5';btn.className='btn-connect';document.getElementById('startBtn').disabled=true;document.getElementById('stopBtn').disabled=true;document.getElementById('deviceName').textContent='--';document.getElementById('rssiValue').textContent='--';isPaired=false;}
 }
 function sendCmd(cmd){
@@ -1418,18 +1426,17 @@ function onPairResult(ok) {
   document.getElementById('pairOverlay').classList.remove('show');
   if(ok) {
     isPaired = true;
-    addLog('success', '[配对] 配对成功，设备已绑定');
-    // 更新 badge 为"已连接(已配对)"
+    addLog('success', '[BLE] 已连接，控制通道已就绪');
     const badge=document.getElementById('statusBadge');
-    badge.textContent='已连接(已配对)';
+    badge.textContent='已连接';
     badge.className='badge connected';
-    // 配对成功后才启用控制按钮
+    // 连接即启用控制按钮
     document.getElementById('startBtn').disabled = false;
     sendCmd('SIM_STATUS');
   } else {
     isPaired = false;
-    addLog('error', '[配对] 配对失败，配对码错误');
-    alert('配对码错误，请检查设备屏幕上的数字');
+    addLog('error', '[BLE] 连接失败');
+    alert('连接失败，请重试');
     disconnect();
   }
 }
