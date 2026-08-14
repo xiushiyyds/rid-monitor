@@ -1240,24 +1240,30 @@ function parseResp(text){
     const p=text.substring(9).split(',');
     if(p.length>=2){
       const lat=+p[0],lon=+p[1],alt=p[2]?+p[2]:0,sats=p[3]||'?';
-      const [gcjLng,gcjLat]=wgs84ToGcj02(lon,lat);
-      if(map && centerMarker){
-        const isFirstGps = !centerMarker._selfGps;
-        centerMarker._selfGps = true;
-        // 移除旧标记重建（兼容 AMap 2.0）
-        map.remove(centerMarker);
-        centerMarker = new AMap.Marker({
-          position:[gcjLng,gcjLat],
-          content:`<div style="position:relative"><div style="width:18px;height:18px;background:#409eff;border:3px solid white;border-radius:50%;box-shadow:0 0 10px rgba(64,158,255,0.6)"></div><div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;background:rgba(64,158,255,0.9);color:white;padding:1px 6px;border-radius:4px">侦测设备</div></div>`,
-          offset: new AMap.Pixel(-9,-9)
-        });
-        map.add(centerMarker);
-        // 仅首次GPS定位时自动居中
-        if(isFirstGps) map.setCenter([gcjLng,gcjLat]);
+      /* lcdfix17: 0,0 表示GPS未定位（无硬件或室内），只更新状态不画标记 */
+      if(lat!==0 && lon!==0){
+        const [gcjLng,gcjLat]=wgs84ToGcj02(lon,lat);
+        if(map && centerMarker){
+          const isFirstGps = !centerMarker._selfGps;
+          centerMarker._selfGps = true;
+          map.remove(centerMarker);
+          centerMarker = new AMap.Marker({
+            position:[gcjLng,gcjLat],
+            content:`<div style="position:relative"><div style="width:18px;height:18px;background:#409eff;border:3px solid white;border-radius:50%;box-shadow:0 0 10px rgba(64,158,255,0.6)"></div><div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;background:rgba(64,158,255,0.9);color:white;padding:1px 6px;border-radius:4px">侦测设备</div></div>`,
+            offset: new AMap.Pixel(-9,-9)
+          });
+          map.add(centerMarker);
+          if(isFirstGps) map.setCenter([gcjLng,gcjLat]);
+        }
+        document.getElementById('gpsStat').innerHTML='GPS(WGS): <span class="val">'+lat.toFixed(4)+','+lon.toFixed(4)+' ('+sats+'星)</span>';
+        document.getElementById('gpsStatus').textContent=sats+'星定位';
+        document.getElementById('gpsStatus').className='value green';
+      } else {
+        /* GPS未定位，只更新文字状态 */
+        document.getElementById('gpsStat').innerHTML='GPS: <span class="val">未定位(未接模块或搜星中)</span>';
+        document.getElementById('gpsStatus').textContent='未定位';
+        document.getElementById('gpsStatus').className='value gray';
       }
-      document.getElementById('gpsStat').innerHTML='GPS(WGS): <span class="val">'+lat.toFixed(4)+','+lon.toFixed(4)+' ('+sats+'星)</span>';
-      document.getElementById('gpsStatus').textContent=sats+'星定位';
-      document.getElementById('gpsStatus').className='value green';
     }
   }
   if(text.startsWith('ALERT:')){
