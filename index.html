@@ -1030,8 +1030,8 @@ async function toggleConnect(){
     const svc=await bleServer.getPrimaryService(NUS_SERVICE);
     txChar=await svc.getCharacteristic(NUS_TX);
     rxChar=await svc.getCharacteristic(NUS_RX);
-    await rxChar.startNotifications();
     rxChar.addEventListener('characteristicvaluechanged',onBleData);
+    await rxChar.startNotifications();
     isConnected=true; updateConnectionUI(true);
     addLog('success',`[BLE] 已连接: ${bleDevice.name}`);
     document.getElementById('deviceName').textContent=bleDevice.name||'RID-Scanner';
