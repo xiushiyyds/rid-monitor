@@ -1097,12 +1097,12 @@ function drawRssiTrend(id, hist){
   for(let i=0;i<hist.length;i++){ const r=hist[i].r; if(r<dMin)dMin=r; if(r>dMax)dMax=r; }
   let yMin=Math.min(-110, Math.floor((dMin-5)/10)*10);
   let yMax=Math.max(-15, Math.ceil((dMax+5)/10)*10);
-  if(yMax-yMin<30){ yMax=yMin+30; } // 最小跨度30dB
+  if(yMax-yMin<40){ yMax=yMin+40; } // 最小跨度40dB（配合20dB刻度至少2格）
   const yOf = v => pad.t + h*(1-(v-yMin)/(yMax-yMin));
-  // 网格 & y 刻度：按10dB间隔
+  // 网格 & y 刻度：按20dB间隔
   ctx.strokeStyle='#eee'; ctx.lineWidth=1; ctx.fillStyle='#999'; ctx.font='9px sans-serif';
-  const gMin=Math.ceil(yMin/10)*10, gMax=Math.floor(yMax/10)*10;
-  for(let gv=gMin; gv<=gMax; gv+=10){
+  const gMin=Math.ceil(yMin/20)*20, gMax=Math.floor(yMax/20)*20;
+  for(let gv=gMin; gv<=gMax; gv+=20){
     const y=yOf(gv);
     ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
     ctx.fillText(gv, 2, y+3);
