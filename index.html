@@ -123,6 +123,13 @@ body {
 .target-id { color: var(--text-primary); font-weight: 500; }
 .target-sn { color: var(--accent); font-size: 11px; margin: 0 8px; flex-shrink: 0; }
 .target-pos { color: var(--text-secondary); font-size: 11px; margin-left: auto; }
+/* v2.2.16: RSSI 信号强度条 */
+.rssi-bars{display:inline-flex;align-items:flex-end;gap:2px;margin-left:6px;height:14px;vertical-align:middle}
+.rssi-bars .bar{width:3px;background:#dcdfe6;border-radius:1px;transition:background 0.3s}
+.rssi-bars .bar.on{background:#67c23a}
+.rssi-bars .bar.mid{background:#e6a23c}
+.rssi-bars .bar.weak{background:#f56c6c}
+.rssi-val{font-size:10px;color:var(--text-secondary);margin-left:3px}
 
 /* ============ 详情弹窗 ============ */
 .detail-overlay {
@@ -556,6 +563,11 @@ const droneData = {}; // id -> { wgs_lat, wgs_lon, gcj_lat, gcj_lon, alt, speed,
 let map=null, droneMarkers={}, droneTrails={}, centerMarker=null, operatorMarkers={};
 let accuracyCircle=null;  // GPS精度圆圈
 
+// v2.2.16: 侦测设备自身 WGS-84 坐标（用于方位/距离计算和连线）
+let selfWgsLat=null, selfWgsLon=null, selfGpsValid=false;
+// v2.2.16: 自己→无人机连线
+let selfToDroneLines={};
+
 // ============ GPS 滑动窗口平滑滤波 ============
 const GPS_WINDOW_SIZE = 5;  // 取最近5次(约15秒)坐标平均
 const gpsWindow = [];       // [{lat, lon, t}]
@@ -586,6 +598,57 @@ function calcDistanceM(lat1,lon1,lat2,lon2){
   const dLat=(lat2-lat1)*toRad, dLon=(lon2-lon1)*toRad;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(a));
+}
+
+// v2.2.16: RSSI 历史（每个目标最多60个采样点，约5分钟数据，用于详情趋势曲线）
+const RSSI_HISTORY_MAX = 60;
+function pushRssiHistory(id, rssi){
+  if(rssi === undefined || rssi === null || isNaN(rssi)) return;
+  if(!droneData[id]) return;
+  if(!droneData[id]._rssiHist) droneData[id]._rssiHist = [];
+  const now = Date.now();
+  const last = droneData[id]._rssiHist.length ? droneData[id]._rssiHist[droneData[id]._rssiHist.length-1] : null;
+  if(last && last.r === rssi && now - last.t < 5000) return;
+  droneData[id]._rssiHist.push({t:now, r:rssi});
+  if(droneData[id]._rssiHist.length > RSSI_HISTORY_MAX) droneData[id]._rssiHist.shift();
+}
+
+// v2.2.16: 方位角（起点→终点，正北为0，顺时针0-360）
+function calcBearing(lat1,lon1,lat2,lon2){
+  const toRad=Math.PI/180;
+  const φ1=lat1*toRad, φ2=lat2*toRad, λ1=lon1*toRad, λ2=lon2*toRad;
+  const y=Math.sin(λ2-λ1)*Math.cos(φ2);
+  const x=Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(λ2-λ1);
+  let θ=Math.atan2(y,x)*180/Math.PI;
+  return (θ+360)%360;
+}
+const BEARING_CN=['北','北偏东','东北','东偏北','东','东偏南','东南','南偏东','南','南偏西','西南','西偏南','西','西偏北','西北','北偏西'];
+function bearingToCN(b){
+  if(b===null||b===undefined||isNaN(b)) return '--';
+  return BEARING_CN[Math.round(b/22.5)%16];
+}
+
+// v2.2.16: 更新自己→目标连线（地图橙色虚线）
+function updateSelfToDroneLine(id){
+  if(!map) return;
+  const d = droneData[id];
+  if(!d) return;
+  if(selfToDroneLines[id]){
+    map.remove(selfToDroneLines[id]);
+    selfToDroneLines[id] = null;
+  }
+  if(!selfGpsValid || selfWgsLat===null || !d.wgs_lat || d._noLoc
+     || (d.wgs_lat===0 && d.wgs_lon===0)) return;
+  const dist = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+  if(dist > 20000) return;  // 20km外不画
+  const [sLng,sLat] = wgs84ToGcj02(selfWgsLon, selfWgsLat);
+  const [dLng,dLat] = wgs84ToGcj02(d.wgs_lon, d.wgs_lat);
+  selfToDroneLines[id] = new AMap.Polyline({
+    path: [[sLng,sLat],[dLng,dLat]],
+    strokeColor: '#e6a23c', strokeWeight: 2, strokeOpacity: 0.7,
+    strokeStyle: 'dashed', showDir: true
+  });
+  map.add(selfToDroneLines[id]);
 }
 
 function initMap() {
@@ -674,6 +737,8 @@ function updateDroneOnMap(id, wgsLat, wgsLon, alt, speed, heading, sn, opLat, op
   }
 
   document.getElementById('mapTargetCount').textContent = Object.keys(droneMarkers).length;
+  // v2.2.16: 更新自己→目标连线
+  updateSelfToDroneLine(id);
 }
 
 // ============ 地图标记快速信息弹窗 ============
@@ -900,6 +965,35 @@ function showDetail(id) {
     </div>
   </div>`;
 
+  // === v2.2.16: 相对方位 + 信号强度 ===
+  const relHtml_parts = [];
+  if(selfGpsValid && selfWgsLat!==null && d.wgs_lat && !d._noLoc && !(d.wgs_lat===0&&d.wgs_lon===0)){
+    const distM = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+    const bear = calcBearing(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+    const distStr = distM>1000 ? (distM/1000).toFixed(2)+' km' : distM.toFixed(0)+' m';
+    relHtml_parts.push(`<div class="d-field highlight"><div class="df-label">直线距离</div><div class="df-value" style="color:#e6a23c;font-size:15px">${distStr}</div></div>`);
+    relHtml_parts.push(`<div class="d-field highlight"><div class="df-label">方位</div><div class="df-value" style="color:#e6a23c">${bearingToCN(bear)} <span style="font-size:11px;color:#909399">(${bear.toFixed(0)}°)</span></div></div>`);
+  }
+  if(d.rssi!==undefined && d.rssi!==null){
+    const r = d.rssi;
+    let quality, qColor;
+    if(r>=-60){quality='极强（近距）';qColor='#67c23a';}
+    else if(r>=-75){quality='良好';qColor='#67c23a';}
+    else if(r>=-88){quality='一般';qColor='#e6a23c';}
+    else {quality='较弱（远距/遮挡）';qColor='#f56c6c';}
+    relHtml_parts.push(`<div class="d-field"><div class="df-label">当前 RSSI</div><div class="df-value" style="color:${qColor}">${r} dBm <span style="font-size:10px;color:#909399">·${quality}</span></div></div>`);
+    if(d._rssiHist && d._rssiHist.length>=2){
+      relHtml_parts.push(`<div class="d-field"><div class="df-label">RSSI 范围</div><div class="df-value">${Math.min(...d._rssiHist.map(p=>p.r))} ~ ${Math.max(...d._rssiHist.map(p=>p.r))} dBm</div></div>`);
+    }
+    relHtml_parts.push(`<div class="d-field full"><div class="df-label">RSSI 趋势（近5分钟）</div><div class="df-value" style="padding-top:4px"><canvas id="rssiCanvas_${id}" width="320" height="60" style="width:100%;height:60px;background:#fafafa;border-radius:4px"></canvas></div></div>`);
+  }
+  if(relHtml_parts.length){
+    html += `<div class="detail-section">
+      <div class="detail-section-title"><span class="icon">📶</span> 方位 & 信号</div>
+      <div class="d-grid">${relHtml_parts.join('')}</div>
+    </div>`;
+  }
+
   // === 飞行轨迹概览 ===
   if(d.history && d.history.length > 1) {
     let totalDist = 0;
@@ -934,6 +1028,11 @@ function showDetail(id) {
   document.getElementById('detailBody').innerHTML = html;
   document.getElementById('detailOverlay').classList.add('show');
 
+  // v2.2.16: 绘制 RSSI 趋势曲线
+  if(d._rssiHist && d._rssiHist.length>=2){
+    drawRssiTrend(id, d._rssiHist);
+  }
+
   // 异步生成 QR 码（高德地图 URI，扫码直接打开高德导航）
   if(d.op_lat && d.op_lon) {
     setTimeout(()=>{
@@ -956,6 +1055,50 @@ function showDetail(id) {
     map.setCenter(droneMarkers[id].getPosition());
   }
   } catch(e) { addLog('error','[showDetail] '+e.message+' | stack: '+e.stack.split('\n').slice(1,3).join(' <- ')); }
+}
+
+// v2.2.16: 绘制 RSSI 趋势 mini 图
+function drawRssiTrend(id, hist){
+  const cv = document.getElementById('rssiCanvas_'+id);
+  if(!cv) return;
+  // 高清屏适配
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 320, H = 60;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0,0,W,H);
+  const pad = {l:28, r:6, t:6, b:14};
+  const w = W-pad.l-pad.r, h = H-pad.t-pad.b;
+  // y 轴范围：-100 ~ -40
+  const yMin=-100, yMax=-40;
+  const yOf = v => pad.t + h*(1-(v-yMin)/(yMax-yMin));
+  // 网格 & y 刻度
+  ctx.strokeStyle='#eee'; ctx.lineWidth=1; ctx.fillStyle='#999'; ctx.font='9px sans-serif';
+  [-40,-60,-80,-100].forEach(v=>{
+    const y=yOf(v);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillText(v, 2, y+3);
+  });
+  // 数据折线
+  const n=hist.length;
+  if(n<2) return;
+  const tMin=hist[0].t, tMax=hist[n-1].t;
+  const xOf = t => pad.l + (tMax===tMin?w/2: w*(t-tMin)/(tMax-tMin));
+  // 填充
+  ctx.beginPath();
+  ctx.moveTo(xOf(hist[0].t), yOf(hist[0].r));
+  for(let i=1;i<n;i++) ctx.lineTo(xOf(hist[i].t), yOf(hist[i].r));
+  ctx.strokeStyle='#409eff'; ctx.lineWidth=1.6; ctx.stroke();
+  // 末端点
+  const last = hist[n-1];
+  ctx.fillStyle='#409eff';
+  ctx.beginPath(); ctx.arc(xOf(last.t), yOf(last.r), 2.5, 0, Math.PI*2); ctx.fill();
+  // 时间标签
+  ctx.fillStyle='#999'; ctx.font='9px sans-serif';
+  const fmtT = t => { const d=new Date(t); return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')+':'+d.getSeconds().toString().padStart(2,'0'); };
+  ctx.fillText(fmtT(hist[0].t), pad.l, H-2);
+  ctx.fillText(fmtT(hist[n-1].t), W-pad.r-38, H-2);
 }
 
 function closeDetail() {
@@ -1972,6 +2115,8 @@ function parseResp(text){
           }
           if(operatorMarkers[removedId]){ map.remove(operatorMarkers[removedId]); delete operatorMarkers[removedId]; }
           delete droneTrails[removedId];
+          // v2.2.16: 清理自己→目标连线
+          if(selfToDroneLines[removedId]){ map.remove(selfToDroneLines[removedId]); delete selfToDroneLines[removedId]; }
           // v2.2.13: 从已提醒集合移除（使设备再出现时可再次提醒）
           _alertedDelete(removedId);
           delete droneData[removedId];
@@ -2000,7 +2145,7 @@ function parseResp(text){
         if(hasSN) droneData[id].sn = msg.basic_id.uas_id;
         if(msg.basic_id && msg.basic_id.ua_type) droneData[id].ua_type = msg.basic_id.ua_type;
         if(msg.mac){ droneData[id]._macs[msg.mac] = Date.now(); droneData[id]._lastMAC = msg.mac; }
-        if(msg.rssi !== undefined) droneData[id].rssi = msg.rssi;
+        if(msg.rssi !== undefined){ droneData[id].rssi = msg.rssi; pushRssiHistory(id, msg.rssi); }
         if(msg.transport) droneData[id].transport = msg.transport;
         if(msg.protocol) droneData[id].protocol = msg.protocol;
         droneData[id]._lastSeen = Date.now();
@@ -2086,7 +2231,7 @@ function parseResp(text){
         }
         // v2.2.13: 无论是否有定位，都更新最后出现时间/RSSI/基本信息
         droneData[id]._lastSeen = Date.now();
-        if(msg.rssi !== undefined) droneData[id].rssi = msg.rssi;
+        if(msg.rssi !== undefined){ droneData[id].rssi = msg.rssi; pushRssiHistory(id, msg.rssi); }
         if(hasSN) droneData[id].sn = sn;
         if(msg.basic_id && msg.basic_id.ua_type) droneData[id].ua_type = msg.basic_id.ua_type;
         if(msg.transport) droneData[id].transport = msg.transport;
@@ -2109,6 +2254,7 @@ function parseResp(text){
           updateDroneOnMap(id, loc.latitude, loc.longitude, alt,
             (loc.speed_h||0).toFixed(1), (loc.direction||0).toFixed(0),
             id, opLat, opLon, uaType);
+          // v2.2.16: 目标位置更新后，自己→目标连线已在 updateDroneOnMap 内刷新
           if(droneData[id]){
             droneData[id].alt_baro = loc.alt_baro || 0;
             droneData[id].alt_geo = loc.alt_geo || 0;
@@ -2200,9 +2346,18 @@ function parseResp(text){
       const hdop=p[4]?parseFloat(p[4]):0;  // v2.0.5+ 会带HDOP
       // 有效定位：纬度/经度非零且卫星数>0
       const valid = (lat!==0 && lon!==0 && sats>0);
+      // v2.2.16: 更新自身定位状态（有效时用平滑坐标，无效时清空）
+      if(valid){
+        const sm0=gpsSmoothPush(lat,lon);
+        selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
+      } else {
+        selfWgsLat=null; selfWgsLon=null; selfGpsValid=false;
+      }
       if(valid && map && centerMarker){
-        // 滑动窗口平滑滤波
-        const sm=gpsSmoothPush(lat,lon);
+        // 滑动窗口平滑滤波（已在上面 push 过，复用结果）
+        const sm = gpsWindow.length ? {lat:selfWgsLat, lon:selfWgsLon, spread: (function(){
+          let mx=0; gpsWindow.forEach(p=>{const d=calcDistanceM(p.lat,p.lon,selfWgsLat,selfWgsLon);if(d>mx)mx=d;});return mx;
+        })()} : {lat,lon,spread:0};
         // 用平滑后的坐标转换GCJ-02
         const [gcjLng,gcjLat]=wgs84ToGcj02(sm.lon,sm.lat);
         const isFirstGps = !centerMarker._selfGps;
@@ -2236,11 +2391,17 @@ function parseResp(text){
         document.getElementById('gpsStat').innerHTML=`GPS: <span class="val">${lat.toFixed(5)},${lon.toFixed(4)} (${sats}星${hdopStr} ±${circleRadius.toFixed(0)}m)</span>`;
         document.getElementById('gpsStatus').innerHTML = sats+'星'+(qualityStr?` <span style="color:${hdop<2?'#67c23a':hdop<4?'#e6a23c':'#f56c6c'}">${qualityStr}</span>`:'定位');
         document.getElementById('gpsStatus').className='value green';
+        // v2.2.16: 自身定位变化时，重画所有在线目标的连线
+        Object.keys(droneData).forEach(tid => updateSelfToDroneLine(tid));
       } else if(!valid) {
         // 未定位：不移动地图标记，只更新状态文字
         document.getElementById('gpsStat').innerHTML='GPS: <span class="val" style="color:var(--orange)">搜索中 ('+sats+'星)</span>';
         document.getElementById('gpsStatus').textContent=sats>0?sats+'星(未定位)':'未定位';
         document.getElementById('gpsStatus').className='value orange';
+        // v2.2.16: GPS 失效时移除所有连线
+        Object.keys(selfToDroneLines).forEach(tid=>{
+          if(selfToDroneLines[tid]){ map && map.remove(selfToDroneLines[tid]); selfToDroneLines[tid]=null; }
+        });
       }
     }
   }
@@ -2267,8 +2428,16 @@ function updateTargetList(id){
   // 目标数量没变且非强制刷新则跳过重建DOM，减少闪烁
   if(count===_lastTargetCount && !id) return;
   _lastTargetCount=count;
+  // v2.2.16: 按 RSSI 强度降序排序（信号最强=距离最近 排最前）；无 RSSI 的排末尾
+  const sortedIds = Object.keys(droneData).sort((a,b)=>{
+    const ra = droneData[a].rssi, rb = droneData[b].rssi;
+    if(ra===undefined && rb===undefined) return 0;
+    if(ra===undefined) return 1;
+    if(rb===undefined) return -1;
+    return rb - ra;
+  });
   let html='';
-  Object.keys(droneData).slice(0,30).forEach(did=>{
+  sortedIds.slice(0,30).forEach(did=>{
     const d=droneData[did];
     if(!d) return;
     const sn = d.sn || did;
@@ -2286,7 +2455,32 @@ function updateTargetList(id){
     } else {
       posStr = '<span style="color:var(--text-secondary)">📍 定位中...</span>';
     }
-    const rssiStr = d.rssi !== undefined ? `<span style="color:var(--text-secondary);font-size:10px;margin-left:4px">${d.rssi}dBm</span>` : '';
+    // v2.2.16: RSSI 信号条（4格）。-50以内满格强，-70三格，-85两格，-100一格弱，<-100 0格
+    let rssiBars = '';
+    if(d.rssi !== undefined && d.rssi !== null){
+      const r = d.rssi;
+      let level, color;
+      if(r >= -60){ level=4; color='on'; }
+      else if(r >= -75){ level=3; color='on'; }
+      else if(r >= -88){ level=2; color='mid'; }
+      else if(r >= -100){ level=1; color='weak'; }
+      else { level=0; color='weak'; }
+      const heights=[6,9,12,14];
+      let bars='';
+      for(let i=0;i<4;i++){
+        const onCls = i<level ? color : '';
+        bars += `<span class="bar ${onCls}" style="height:${heights[i]}px"></span>`;
+      }
+      rssiBars = `<span class="rssi-bars" title="RSSI ${r}dBm">${bars}</span><span class="rssi-val">${r}</span>`;
+    }
+    // v2.2.16: 自己→目标方位距离
+    let dirStr = '';
+    if(selfGpsValid && selfWgsLat!==null && d.wgs_lat && !d._noLoc && !(d.wgs_lat===0&&d.wgs_lon===0)){
+      const distM = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+      const bear = calcBearing(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+      const distStr = distM>1000?(distM/1000).toFixed(2)+'km':distM.toFixed(0)+'m';
+      dirStr = `<span style="color:#e6a23c;font-size:10px;margin-left:4px" title="从我的位置到目标">→${bearingToCN(bear)} ${distStr}</span>`;
+    }
     // v2.2.12: 围栏告警标识
     let gfTag = '';
     if(d._geofence && d._geofence.alert){
@@ -2300,7 +2494,7 @@ function updateTargetList(id){
       <span class="brand-tag ${brandCls}" style="margin:0 6px;font-size:9px">${brandLabel}</span>
       ${srcTag}
       <span class="target-sn">${snShort}</span>
-      <span class="target-pos">${posStr}${rssiStr}</span>
+      <span class="target-pos">${posStr}${dirStr}${rssiBars}</span>
     </div>`;
   });
   if(count>30) html+=`<div class="target-item" style="color:var(--text-secondary);justify-content:center">... 还有 ${count-30} 个目标</div>`;
@@ -2450,6 +2644,8 @@ function startStaleCleanTimer(){
         }
         if(operatorMarkers[id]){ map.remove(operatorMarkers[id]); delete operatorMarkers[id]; }
         delete droneTrails[id];
+        // v2.2.16: 清理自己→目标连线
+        if(selfToDroneLines[id]){ map.remove(selfToDroneLines[id]); delete selfToDroneLines[id]; }
         _alertedDelete(id);
         delete droneData[id];
         removed++;
