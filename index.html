@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>RID 侦测监控 v2.3.3</title>
+<title>RID 侦测监控 v2.3.4</title>
 <script src="https://webapi.amap.com/loader.js"></script>
 <style>
 :root {
@@ -283,6 +283,8 @@ body {
 .source-dji{background:rgba(230,162,60,0.12);color:#e6a23c}
 .brand-autel { background: rgba(255,107,0,0.1); color: #e65c00; }
 .brand-fimi { background: rgba(0,120,255,0.1); color: #0070ff; }
+.brand-rid { background: rgba(16,185,129,0.12); color: #0d9066; }
+.brand-yuneec, .brand-parrot, .brand-skydio, .brand-飞马 { background: rgba(144,147,153,0.12); color: #606266; }
 .brand-unknown { background: rgba(0,0,0,0.04); color: #999; }
 
 /* ============ v2.3.0: 雷达视图 ============ */
@@ -632,6 +634,9 @@ const SN_BRAND_MAP = [
   { prefix:'1581FAN4', brand:'DJI', model:'FlyCart 100',     cls:'brand-dji' },
   // === 其他品牌 1581F 前缀 ===
   { prefix:'1748FEV3', brand:'Autel', model:'EVO MAX',        cls:'brand-autel' },
+  // === 国标 RID 设备（GB42590/GB46750 合规广播，含公安肩灯等）===
+  // 国标序列号通常为 20 位十六进制，前缀多为制造商标识。以下为已知设备前缀。
+  { prefix:'2051FE',   brand:'国标RID', model:'电子识别设备(肩灯)', cls:'brand-rid' },
   // === 历史前缀（早期 RID 肩灯/旧固件格式）===
   { prefix:'4TADLBS', brand:'DJI',     model:'Mini 4 Pro',   cls:'brand-dji' },
   { prefix:'4TADLKR', brand:'DJI',     model:'Air 3',        cls:'brand-dji' },
@@ -646,19 +651,77 @@ const SN_BRAND_MAP = [
   { prefix:'8UUHGTS', brand:'DJI',     model:'Matrice 30',   cls:'brand-dji' },
   { prefix:'4TADMVS', brand:'DJI',     model:'Mavic Air 2',  cls:'brand-dji' },
 ];
-function lookupSN(sn) {
-  if(!sn) return { brand:'未知', model:'', cls:'brand-unknown' };
-  for(const e of SN_BRAND_MAP) {
-    if(sn.startsWith(e.prefix)) return e;
+// ============ MAC OUI 厂商表（SN 无法识别时兜底） ============
+// 来源：IEEE MA-L 公开注册 + 公开无人机 MAC 样本。仅含已知会发 RID 的设备厂商。
+// 注意：很多 RID 设备使用随机 MAC（locally administered bit=1），此时 OUI 无意义。
+const MAC_OUI_MAP = [
+  // SZ DJI Technology Co., Ltd
+  { oui:'60:60:1F', brand:'DJI' }, { oui:'34:D0:7F', brand:'DJI' },
+  { oui:'A0:14:3D', brand:'DJI' }, { oui:'A8:3B:76', brand:'DJI' },
+  { oui:'1C:9D:C2', brand:'DJI' }, { oui:'18:4F:32', brand:'DJI' },
+  { oui:'10:8C:CF', brand:'DJI' }, { oui:'18:7A:93', brand:'DJI' },
+  { oui:'40:62:32', brand:'DJI' }, { oui:'48:1C:B9', brand:'DJI' },
+  { oui:'58:10:7C', brand:'DJI' }, { oui:'60:3B:16', brand:'DJI' },
+  { oui:'64:69:4E', brand:'DJI' }, { oui:'78:11:DC', brand:'DJI' },
+  { oui:'80:30:40', brand:'DJI' }, { oui:'84:4B:F5', brand:'DJI' },
+  { oui:'8C:85:2E', brand:'DJI' }, { oui:'90:3A:72', brand:'DJI' },
+  { oui:'98:6E:EC', brand:'DJI' }, { oui:'B0:1C:B7', brand:'DJI' },
+  { oui:'C0:28:8D', brand:'DJI' }, { oui:'C8:47:80', brand:'DJI' },
+  { oui:'CC:50:E3', brand:'DJI' }, { oui:'D8:4A:25', brand:'DJI' },
+  { oui:'DC:04:82', brand:'DJI' }, { oui:'E0:1C:14', brand:'DJI' },
+  { oui:'E4:3A:6E', brand:'DJI' }, { oui:'EC:78:32', brand:'DJI' },
+  { oui:'F0:45:32', brand:'DJI' }, { oui:'F8:1B:67', brand:'DJI' },
+  { oui:'FC:65:DE', brand:'DJI' },
+  // Autel Robotics
+  { oui:'00:0E:8E', brand:'Autel' }, { oui:'70:B6:D5', brand:'Autel' },
+  { oui:'A8:1B:6A', brand:'Autel' }, { oui:'C4:4F:33', brand:'Autel' },
+  // Yuneec
+  { oui:'00:18:C8', brand:'Yuneec' }, { oui:'00:26:7D', brand:'Yuneec' },
+  { oui:'60:3A:7C', brand:'Yuneec' },
+  // Parrot
+  { oui:'00:12:1C', brand:'Parrot' }, { oui:'90:3A:72', brand:'Parrot' },
+  { oui:'A0:14:3D', brand:'Parrot' }, { oui:'00:26:7D', brand:'Parrot' },
+  // Skydio
+  { oui:'B8:27:EB', brand:'Skydio' }, { oui:'DC:A6:32', brand:'Skydio' },
+  // FIMI
+  { oui:'64:69:4E', brand:'FIMI' },
+  // 飞马机器人 / JOUAV
+  { oui:'00:12:1C', brand:'飞马' },
+];
+function lookupMAC(mac) {
+  if(!mac || mac.length < 8) return null;
+  const norm = mac.toUpperCase();
+  // 检查随机 MAC：第一字节第二个十六进制位为 2/6/A/E 表示 locally administered
+  const firstByte = parseInt(norm.substring(0,2), 16);
+  if(!isNaN(firstByte) && (firstByte & 0x02)) return null;
+  const prefix = norm.substring(0,8);
+  for(const e of MAC_OUI_MAP) {
+    if(prefix === e.oui) return { brand: e.brand, model:'(MAC识别)', cls:'brand-'+e.brand.toLowerCase() };
   }
-  // DJI 通用前缀兜底
-  if(sn.startsWith('4TAD') || sn.startsWith('8UU')) return { brand:'DJI', model:'(通用)', cls:'brand-dji' };
-  if(sn.startsWith('89XH')) return { brand:'Autel', model:'(通用)', cls:'brand-autel' };
-  if(sn.startsWith('6AXF')) return { brand:'FIMI', model:'(通用)', cls:'brand-fimi' };
+  return null;
+}
+
+function lookupSN(sn, mac) {
+  if(sn) {
+    for(const e of SN_BRAND_MAP) {
+      if(sn.startsWith(e.prefix)) return e;
+    }
+    // DJI 通用前缀兜底
+    if(sn.startsWith('4TAD') || sn.startsWith('8UU')) return { brand:'DJI', model:'(通用)', cls:'brand-dji' };
+    if(sn.startsWith('89XH')) return { brand:'Autel', model:'(通用)', cls:'brand-autel' };
+    if(sn.startsWith('6AXF')) return { brand:'FIMI', model:'(通用)', cls:'brand-fimi' };
+    // 国标 RID 设备兜底：纯 16 位以上十六进制 SN（非 DJI 自定义格式）
+    if(/^[0-9A-Fa-f]{16,}$/.test(sn)) return { brand:'国标RID', model:'合规设备', cls:'brand-rid' };
+  }
+  // SN 识别失败时尝试 MAC OUI
+  if(mac) {
+    const macInfo = lookupMAC(mac);
+    if(macInfo) return macInfo;
+  }
   return { brand:'未知', model:'', cls:'brand-unknown' };
 }
-function brandTag(sn) {
-  const info = lookupSN(sn);
+function brandTag(sn, mac) {
+  const info = lookupSN(sn, mac);
   const text = info.model ? `${info.brand} ${info.model}` : info.brand;
   return `<span class="brand-tag ${info.cls}">${text}</span>`;
 }
@@ -684,6 +747,38 @@ function generateQR(canvas, data, size) {
     lines.slice(0, 5).forEach((line, i) => ctx.fillText(line, size/2, 18 + i * 10));
   };
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${size*2}x${size*2}&data=${encodeURIComponent(data)}&margin=2&color=1a1a2e`;
+}
+
+// ============ UA Type 中文映射（ASTM F3411 / GB42590） ============
+const UA_TYPE_CN = {
+  'none':'未声明',
+  'aeroplane':'固定翼',
+  'helicopter_or_multirotor':'多旋翼/直升机',
+  'gyroplane':'自转旋翼机',
+  'hybrid_lift':'复合翼',
+  'ornithopter':'扑翼机',
+  'glider':'滑翔机',
+  'kite':'风筝',
+  'free_balloon':'自由气球',
+  'captive_balloon':'系留气球',
+  'airship':'飞艇',
+  'free_fall_parachute':'自由落体降落伞',
+  'rocket':'火箭',
+  'tethered_powered':'系留动力飞行器',
+  'ground_obstacle':'地面障碍物',
+  'other':'其他'
+};
+function uaTypeCN(t) {
+  if(t === undefined || t === null || t === '') return '未知';
+  if(typeof t === 'number') {
+    // 数值型（ODID_UATYPE_*），1=Aeroplane,2=Helicopter/Multirotor,...
+    const arr = ['none','aeroplane','helicopter_or_multirotor','gyroplane','hybrid_lift',
+      'ornithopter','glider','kite','free_balloon','captive_balloon','airship',
+      'free_fall_parachute','rocket','tethered_powered','ground_obstacle','other'];
+    return UA_TYPE_CN[arr[t]] || ('类型'+t);
+  }
+  const k = String(t).toLowerCase();
+  return UA_TYPE_CN[k] || t;
 }
 
 // ============ 数据存储 ============
@@ -900,7 +995,7 @@ let _infoWindow = null;
 function showDroneInfo(id) {
   const d = droneData[id];
   if(!d) return;
-  const bi = lookupSN(d.sn);
+  const bi = lookupSN(d.sn, d._lastMAC);
   const content = `<div style="padding:8px 10px;font-size:12px;min-width:180px;line-height:1.8">
     <div style="font-weight:700;font-size:14px;color:#1a1a2e;margin-bottom:4px">${id} ${d.is_dji?'<span style="background:rgba(230,162,60,0.15);color:#e6a23c;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600">DJI协议</span>':'<span style="background:rgba(64,158,255,0.12);color:#409eff;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600">RID</span>'}</div>
     <div><span style="color:#909399">品牌:</span> ${bi.brand} ${bi.model||''}</div>
@@ -926,7 +1021,7 @@ function showDetail(id) {
   let html = '';
 
   // === 基本信息 ===
-  const bInfo = lookupSN(d.sn);
+  const bInfo = lookupSN(d.sn, d._lastMAC);
   html += `<div class="detail-section">
     <div class="detail-section-title"><span class="icon">📋</span> 基本信息</div>
     <div class="d-grid">
@@ -942,7 +1037,7 @@ function showDetail(id) {
         <div class="df-label">型号</div>
         <div class="df-value">${bInfo.model || '--'}</div>
       </div>
-      <div class="d-field"><div class="df-label">无人机类型</div><div class="df-value">${d.ua_type || '--'}</div></div>
+      <div class="d-field"><div class="df-label">无人机类型</div><div class="df-value">${uaTypeCN(d.ua_type)}</div></div>
       <div class="d-field"><div class="df-label">设备编号</div><div class="df-value">${id}</div></div>
       <div class="d-field highlight full">
         <div class="df-label">发现方式</div>
@@ -1687,10 +1782,10 @@ function vibrate(pattern){
 }
 
 // 触发新目标提醒（声音+震动+横幅）
-function notifyNewTarget(sn, rssi){
+function notifyNewTarget(sn, rssi, mac){
   playNewTargetSound();
   vibrate([100, 50, 100]);
-  const info = lookupSN(sn);
+  const info = lookupSN(sn, mac);
   const model = info.model ? info.brand + ' ' + info.model : (info.brand || '未知型号');
   showTempBanner(`🛩️ 发现无人机：${model}${sn ? '（' + sn.substring(0,12) + (sn.length>12?'...':'') + '）' : ''}${rssi ? ' RSSI=' + rssi : ''}`, 'success', 4000);
   try{ addAlertHistory('new', sn, {rssi:rssi, model:model}); }catch(e){}
@@ -2335,7 +2430,7 @@ function parseResp(text){
         // v2.2.12: 仅在首次发现新目标时触发提醒（uav_status 是周期更新，不提醒）
         if(_isNew && msg.evt === 'uav_discovery' && !_alertedHas(id)){
           _alertedAdd(id);
-          notifyNewTarget(droneData[id].sn || id, droneData[id].rssi);
+          notifyNewTarget(droneData[id].sn || id, droneData[id].rssi, droneData[id]._lastMAC);
         }
         return;
       }
@@ -2455,7 +2550,7 @@ function parseResp(text){
         if(_justCreated && !droneData[id]._notified){
           droneData[id]._notified = true;
           _alertedAdd(id);
-          notifyNewTarget(droneData[id].sn || id, msg.rssi);
+          notifyNewTarget(droneData[id].sn || id, msg.rssi, droneData[id]._lastMAC || msg.mac);
         }
         // v2.2.12: 围栏告警（解析 JSON 结构化字段，不依赖 ALERT: 文本）
         if(msg.geofence && msg.geofence.alert){
@@ -2605,7 +2700,7 @@ function updateTargetList(id){
     if(!d) return;
     const sn = d.sn || did;
     const snShort=sn.length>16?sn.substring(0,14)+'..':sn;
-    const bi=lookupSN(sn);
+    const bi=lookupSN(sn, d._lastMAC);
     const isDjiProto=d.is_dji===true;
     const brandLabel=isDjiProto?(d.dji_model||'DJI'):(bi.model?bi.brand+' '+bi.model:bi.brand);
     const brandCls=isDjiProto?'brand-dji':(bi.cls||'');
@@ -2700,7 +2795,7 @@ function exportCSV() {
 
   const rows = ids.map((id, i) => {
     const d = droneData[id];
-    const bi = lookupSN(d.sn);
+    const bi = lookupSN(d.sn, d._lastMAC);
     const opGcj = (d.op_lat && d.op_lon) ? wgs84ToGcj02(d.op_lon, d.op_lat) : [null, null];
     const dist = (d.op_lat && d.op_lon) ? calcDistance(d.wgs_lat, d.wgs_lon, d.op_lat, d.op_lon) : '';
     const firstSeen = d.history && d.history.length > 0 ? new Date(d.history[0].t).toLocaleString() : '';
@@ -2716,7 +2811,7 @@ function exportCSV() {
     }
     const channel = d.channel || '';
     return [
-      i+1, id, d.sn, bi.brand, bi.model||'', d.ua_type, d.is_dji?'DJI DroneID协议解析':'标准RID侦测',
+      i+1, id, d.sn, bi.brand, bi.model||'', uaTypeCN(d.ua_type), d.is_dji?'DJI DroneID协议解析':'标准RID侦测',
       d.wgs_lat?.toFixed(6)||'', d.wgs_lon?.toFixed(6)||'',
       d.gcj_lat?.toFixed(6)||'', d.gcj_lon?.toFixed(6)||'',
       (d._has_rel ? d.alt?.toFixed(1) : '')||'', d.alt_baro?.toFixed(1)||'', d.alt_geo?.toFixed(1)||'',
@@ -3389,7 +3484,7 @@ function saveTrackToHistory(id){
   if(rssiHist.length){
     avgRssi = rssiHist.reduce((s,p)=>s+p.r, 0) / rssiHist.length;
   }
-  const bi = lookupSN(sn);
+  const bi = lookupSN(sn, d._lastMAC);
   const rec = {
     id: sn + '_' + firstSeen,
     sn: sn,
@@ -3913,7 +4008,7 @@ function exportKML(){
     const d = droneData[id];
     if(!d.history || d.history.length<2) return;
     const pts = d.history.map(p=>[p.lng, p.lat]);
-    const bi = lookupSN(d.sn);
+    const bi = lookupSN(d.sn, d._lastMAC);
     const firstSeen = d.history[0].t, lastSeen = d.history[d.history.length-1].t;
     placemarks.push({
       name: d.sn || id,
