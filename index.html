@@ -307,6 +307,28 @@ body {
       </div>
       <div class="device-info"><div>设备: <span id="serialPortInfo">--</span></div></div>
     </div>
+
+    <!-- v2.2.12: 现场提醒设置 -->
+    <div class="card">
+      <h3>🔔 现场提醒</h3>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="chkSound" checked style="width:18px;height:18px;accent-color:#10b981;cursor:pointer">
+          <span>🔊 发现新目标/围栏告警时蜂鸣提示</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="chkVibrate" checked style="width:18px;height:18px;accent-color:#10b981;cursor:pointer">
+          <span>📳 手机震动提示（移动设备）</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="chkWake" style="width:18px;height:18px;accent-color:#10b981;cursor:pointer" onchange="toggleWakeLock(this.checked)">
+          <span>☀️ 屏幕常亮（防止锁屏中断侦测）</span>
+        </label>
+        <div style="font-size:11px;color:var(--text-dim);line-height:1.5;padding-left:28px">
+          提示：声音和震动在首次 USB 连接后由用户交互激活；屏幕常亮需浏览器支持 Wake Lock API。
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 状态 -->
@@ -392,7 +414,59 @@ function wgs84ToGcj02(lng,lat){
 }
 
 // ============ SN 前缀 → 品牌/型号映射 ============
+// v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
 const SN_BRAND_MAP = [
+  // === DJI 消费级（1581F 前缀，来自 DroneScanner scanner.ino DJI_Model 表）===
+  { prefix:'1581F8LQ', brand:'DJI', model:'Mavic 4 Pro',     cls:'brand-dji' },
+  { prefix:'1581F67Q', brand:'DJI', model:'Mavic 3 Pro',     cls:'brand-dji' },
+  { prefix:'1581F5Y8', brand:'DJI', model:'Mavic 3 Classic', cls:'brand-dji' },
+  { prefix:'1581F45Q', brand:'DJI', model:'Mavic 3',         cls:'brand-dji' },
+  { prefix:'1581F45T', brand:'DJI', model:'Mavic 3',         cls:'brand-dji' },
+  { prefix:'1581F895', brand:'DJI', model:'Air 3S',          cls:'brand-dji' },
+  { prefix:'1581F6N8', brand:'DJI', model:'Air 3',           cls:'brand-dji' },
+  { prefix:'1581F385', brand:'DJI', model:'Air 2S',          cls:'brand-dji' },
+  { prefix:'1581FANL', brand:'DJI', model:'Mini 5 Pro',      cls:'brand-dji' },
+  { prefix:'1581F9DE', brand:'DJI', model:'Mini 5 Pro',      cls:'brand-dji' },
+  { prefix:'1581F5QJ', brand:'DJI', model:'Mini 4 Pro',      cls:'brand-dji' },
+  { prefix:'1581F6Z9', brand:'DJI', model:'Mini 4 Pro',      cls:'brand-dji' },
+  { prefix:'1581F8C8', brand:'DJI', model:'Mini 4K',         cls:'brand-dji' },
+  { prefix:'1581F4XF', brand:'DJI', model:'Mini 3 Pro',      cls:'brand-dji' },
+  { prefix:'1581F6CD', brand:'DJI', model:'Mini 2 SE',       cls:'brand-dji' },
+  { prefix:'1581F5YH', brand:'DJI', model:'Mini 3',          cls:'brand-dji' },
+  { prefix:'1581FBV5', brand:'DJI', model:'Lito 1',          cls:'brand-dji' },
+  { prefix:'1581FB34', brand:'DJI', model:'Lito X1',         cls:'brand-dji' },
+  { prefix:'1581FA8J', brand:'DJI', model:'Avata 360',       cls:'brand-dji' },
+  // === DJI FPV/穿越机 ===
+  { prefix:'1581F6W8', brand:'DJI', model:'Avata 2',         cls:'brand-dji' },
+  { prefix:'1581F4CQ', brand:'DJI', model:'Avata',           cls:'brand-dji' },
+  { prefix:'1581F4QW', brand:'DJI', model:'Avata',           cls:'brand-dji' },
+  { prefix:'1581FA6Q', brand:'DJI', model:'Neo 2',           cls:'brand-dji' },
+  { prefix:'1581F8A1', brand:'DJI', model:'Neo',             cls:'brand-dji' },
+  { prefix:'1581F87L', brand:'DJI', model:'Neo',             cls:'brand-dji' },
+  { prefix:'1581F3CQ', brand:'DJI', model:'DJI FPV',         cls:'brand-dji' },
+  { prefix:'1581F7V2', brand:'DJI', model:'DJI Flip',        cls:'brand-dji' },
+  // === DJI 行业级 ===
+  { prefix:'1581F6H8', brand:'DJI', model:'Matrice 350 RTK', cls:'brand-dji' },
+  { prefix:'1581F5BK', brand:'DJI', model:'Matrice 30',      cls:'brand-dji' },
+  { prefix:'1581F5BM', brand:'DJI', model:'Matrice 30T',     cls:'brand-dji' },
+  { prefix:'1581F52Q', brand:'DJI', model:'Mavic 3E/3T',     cls:'brand-dji' },
+  { prefix:'1581F5FH', brand:'DJI', model:'Mavic 3E/3T',     cls:'brand-dji' },
+  { prefix:'1581F5FJ', brand:'DJI', model:'Mavic 3M',        cls:'brand-dji' },
+  { prefix:'1581F578', brand:'DJI', model:'Inspire 3',       cls:'brand-dji' },
+  { prefix:'1581F4Z4', brand:'DJI', model:'Inspire 3',       cls:'brand-dji' },
+  { prefix:'1581F6GK', brand:'DJI', model:'Matrice 300',     cls:'brand-dji' },
+  { prefix:'1581F6Q8', brand:'DJI', model:'Matrice 3D',      cls:'brand-dji' },
+  { prefix:'1581F6QA', brand:'DJI', model:'Matrice 3TD',     cls:'brand-dji' },
+  { prefix:'1581F9HE', brand:'DJI', model:'Matrice 4T/4E',   cls:'brand-dji' },
+  { prefix:'1581F7K3', brand:'DJI', model:'Matrice 4T/4E',   cls:'brand-dji' },
+  { prefix:'1581F8HH', brand:'DJI', model:'Matrice 4D/TD',   cls:'brand-dji' },
+  { prefix:'1581F8HG', brand:'DJI', model:'Matrice 4D/TD',   cls:'brand-dji' },
+  { prefix:'1581F8DB', brand:'DJI', model:'Matrice 400',     cls:'brand-dji' },
+  { prefix:'1581F986', brand:'DJI', model:'Mavic 4 Series',  cls:'brand-dji' },
+  { prefix:'1581FAN4', brand:'DJI', model:'FlyCart 100',     cls:'brand-dji' },
+  // === 其他品牌 1581F 前缀 ===
+  { prefix:'1748FEV3', brand:'Autel', model:'EVO MAX',        cls:'brand-autel' },
+  // === 历史前缀（早期 RID 肩灯/旧固件格式）===
   { prefix:'4TADLBS', brand:'DJI',     model:'Mini 4 Pro',   cls:'brand-dji' },
   { prefix:'4TADLKR', brand:'DJI',     model:'Air 3',        cls:'brand-dji' },
   { prefix:'8UUXNXX', brand:'DJI',     model:'Matrice 30T',  cls:'brand-dji' },
@@ -736,6 +810,19 @@ function showDetail(id) {
           <canvas class="qr-canvas" id="qrOp_${id}" width="80" height="80"></canvas>
           <div style="font-size:9px;color:#e6a23c;margin-top:2px;font-weight:600">📱 扫码导航到飞手</div>
         </div>
+      </div>
+    </div>`;
+  }
+
+  // v2.2.12: 围栏告警
+  if(d._geofence && d._geofence.alert){
+    const gf = d._geofence;
+    const lvlColor = gf.level === 2 ? '#f56c6c' : (gf.level === 3 ? '#e6a23c' : '#f56c6c');
+    html += `<div class="detail-section" style="border:1.5px solid ${lvlColor};border-radius:8px;background:${lvlColor}11">
+      <div class="detail-section-title"><span class="icon">⚠️</span> <span style="color:${lvlColor};font-weight:700">围栏告警：${gf.zone}</span></div>
+      <div class="d-grid">
+        <div class="d-field"><div class="df-label">告警等级</div><div class="df-value" style="color:${lvlColor};font-weight:600">${gf.level_name || ('level '+gf.level)}</div></div>
+        <div class="d-field"><div class="df-label">区域类型</div><div class="df-value">${gf.level === 2 ? '禁飞区/管制区' : (gf.level === 3 ? '机场净空区' : (gf.level === 1 ? '超高' : '其他'))}</div></div>
       </div>
     </div>`;
   }
@@ -1162,6 +1249,127 @@ function onBleData(e){
   }
 }
 
+// ============ v2.2.12: 现场提醒（声音/震动/屏幕常亮）============
+let _audioCtx = null;
+let _wakeLock = null;
+// 已告警过的目标集合，避免同一个目标反复告警
+const _alertedTargets = new Set();
+
+function _ensureAudio(){
+  if(!_audioCtx){
+    try{ _audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ _audioCtx=null; }
+  }
+  if(_audioCtx && _audioCtx.state === 'suspended'){
+    _audioCtx.resume().catch(()=>{});
+  }
+  return _audioCtx;
+}
+
+// beep: 频率(Hz)、时长(ms)、音量(0~1)、类型
+function beep(freq=880, duration=200, volume=0.3, type='sine'){
+  const chk = document.getElementById('chkSound');
+  if(chk && !chk.checked) return;
+  const ctx = _ensureAudio();
+  if(!ctx) return;
+  try{
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration/1000);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration/1000);
+  }catch(e){}
+}
+
+// 新目标提示：两声上扬
+function playNewTargetSound(){
+  beep(660, 120, 0.25, 'sine');
+  setTimeout(()=>beep(990, 180, 0.3, 'sine'), 140);
+}
+
+// 围栏告警：急促三声高频
+function playAlertSound(){
+  [0, 180, 360].forEach(d=>setTimeout(()=>beep(1200, 140, 0.35, 'square'), d));
+}
+
+function vibrate(pattern){
+  const chk = document.getElementById('chkVibrate');
+  if(chk && !chk.checked) return;
+  if(navigator.vibrate){ try{ navigator.vibrate(pattern); }catch(e){} }
+}
+
+// 触发新目标提醒（声音+震动+横幅）
+function notifyNewTarget(sn, rssi){
+  playNewTargetSound();
+  vibrate([100, 50, 100]);
+  const info = lookupSN(sn);
+  const model = info.model ? info.brand + ' ' + info.model : (info.brand || '未知型号');
+  showTempBanner(`🛩️ 发现无人机：${model}${sn ? '（' + sn.substring(0,12) + (sn.length>12?'...':'') + '）' : ''}${rssi ? ' RSSI=' + rssi : ''}`, 'success', 4000);
+}
+
+// 触发围栏告警
+function notifyGeofence(sn, zoneName, levelName){
+  playAlertSound();
+  vibrate([300, 100, 300, 100, 300]);
+  showTempBanner(`⚠️ 围栏告警：${sn || '目标'} 进入【${zoneName}】(${levelName})`, 'alert', 6000);
+}
+
+// 顶部临时横幅（成功/告警两种样式），自动消失
+function showTempBanner(html, type, duration){
+  let bar = document.getElementById('tempBanner');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'tempBanner';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;transform:translateY(-100%);transition:transform 0.3s;box-shadow:0 2px 8px rgba(0,0,0,0.2)';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = html;
+  bar.style.background = type === 'alert' ? '#f56c6c' : '#10b981';
+  bar.style.color = '#fff';
+  requestAnimationFrame(()=>{ bar.style.transform = 'translateY(0)'; });
+  clearTimeout(bar._timer);
+  bar._timer = setTimeout(()=>{ bar.style.transform = 'translateY(-100%)'; }, duration || 3000);
+}
+
+// 屏幕常亮
+async function toggleWakeLock(enable){
+  if(!enable){
+    if(_wakeLock){ try{ await _wakeLock.release(); }catch(e){} _wakeLock = null; }
+    return;
+  }
+  if(!('wakeLock' in navigator)){
+    addLog('warn', '[系统] 当前浏览器不支持屏幕常亮 (Wake Lock API)');
+    const chk = document.getElementById('chkWake'); if(chk) chk.checked = false;
+    return;
+  }
+  try{
+    _wakeLock = await navigator.wakeLock.request('screen');
+    addLog('success', '[系统] 屏幕常亮已开启');
+    _wakeLock.addEventListener('release', ()=>{
+      // 页面切到后台会被系统释放，回来时若开关仍开着则重新申请
+      _wakeLock = null;
+      const chk = document.getElementById('chkWake');
+      if(chk && chk.checked && document.visibilityState === 'visible'){
+        toggleWakeLock(true);
+      }
+    });
+  }catch(e){
+    addLog('warn', '[系统] 屏幕常亮开启失败: ' + e.message);
+    const chk = document.getElementById('chkWake'); if(chk) chk.checked = false;
+  }
+}
+
+// 页面回到前台时，如果常亮开关仍开着，重新申请
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible'){
+    const chk = document.getElementById('chkWake');
+    if(chk && chk.checked && !_wakeLock) toggleWakeLock(true);
+  }
+});
+
 // ============ USB 直连：优先 WebUSB，回退 Web Serial ============
 // ESP32-C5 的原生 USB Serial/JTAG 是 Espressif 自定义设备类（VID=303A PID=1001），
 // 在 Windows 上不会自动生成 COM 口（Win7 需 Zadig 安装 WinUSB 驱动）。
@@ -1354,7 +1562,11 @@ function onUsbConnected(name){
   // v2.2.9 已移除蓝牙卡片，deviceName/rssiValue 元素不再存在，做空值防护
   const dn=document.getElementById('deviceName'); if(dn) dn.textContent=name;
   const rv=document.getElementById('rssiValue'); if(rv) rv.textContent='USB';
+  // v2.2.12: 用户点击连接按钮属于用户手势，此时解锁音频上下文
+  _ensureAudio();
   clearAllDrones && clearAllDrones();
+  // v2.2.12: 新连接时清空已告警集合
+  _alertedTargets.clear();
   if(map && centerMarker) centerMarker.hide();
   startUptime();
   const btn=document.getElementById('serialBtn');
@@ -1504,7 +1716,8 @@ function parseResp(text){
         // ID：有 SN 用 SN；无 SN 用 MAC 做临时 ID
         const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
         const id = hasSN ? msg.basic_id.uas_id : (msg.mac ? ('MAC_'+msg.mac) : (msg.id || ('UAV_'+(msg.ts||''))));
-        if(!droneData[id]) droneData[id] = { history: [], _macs: {} };
+        const _isNew = !droneData[id];
+        if(_isNew) droneData[id] = { history: [], _macs: {} };
         // v2.2.8: 初始化默认值，防止无坐标目标点详情时 toFixed 崩溃
         if(droneData[id].speed === undefined) droneData[id].speed = 0;
         if(droneData[id].heading === undefined) droneData[id].heading = 0;
@@ -1541,6 +1754,11 @@ function parseResp(text){
         }
         document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
         updateTargetList(id);
+        // v2.2.12: 仅在首次发现新目标时触发提醒（uav_status 是周期更新，不提醒）
+        if(_isNew && msg.evt === 'uav_discovery' && !_alertedTargets.has(id)){
+          _alertedTargets.add(id);
+          notifyNewTarget(droneData[id].sn || id, droneData[id].rssi);
+        }
         return;
       }
       if(msg.evt === 'uav_update' && msg.location){
@@ -1630,6 +1848,33 @@ function parseResp(text){
           if(msg.dji.pilot_lat !== undefined) droneData[id].dji_pilot_lat = msg.dji.pilot_lat;
           if(msg.dji.pilot_lon !== undefined) droneData[id].dji_pilot_lon = msg.dji.pilot_lon;
           if(msg.dji.identification !== undefined) droneData[id].dji_id = msg.dji.identification;
+        }
+        // v2.2.12: 新目标提醒（SN 合并后才真正完整，此时提醒一次）
+        const _justCreated = (sn && !_alertedTargets.has(sn)) || (!sn && !_alertedTargets.has(macId));
+        if(_justCreated && !droneData[id]._notified){
+          droneData[id]._notified = true;
+          _alertedTargets.add(id);
+          notifyNewTarget(droneData[id].sn || id, msg.rssi);
+        }
+        // v2.2.12: 围栏告警（解析 JSON 结构化字段，不依赖 ALERT: 文本）
+        if(msg.geofence && msg.geofence.alert){
+          const gf = msg.geofence;
+          droneData[id]._geofence = gf;
+          // 只在首次进入围栏或升级告警时提醒，避免每次 update 都响
+          const prevZone = droneData[id]._lastAlertZone;
+          const prevLevel = droneData[id]._lastAlertLevel || 0;
+          if(prevZone !== gf.zone || gf.level > prevLevel){
+            droneData[id]._lastAlertZone = gf.zone;
+            droneData[id]._lastAlertLevel = gf.level;
+            notifyGeofence(droneData[id].sn || id, gf.zone, gf.level_name || ('level '+gf.level));
+          }
+        } else if(droneData[id]){
+          // 飞出围栏，清除标记
+          if(droneData[id]._geofence && droneData[id]._geofence.alert){
+            droneData[id]._lastAlertZone = null;
+            droneData[id]._lastAlertLevel = 0;
+          }
+          droneData[id]._geofence = { alert:false, level:0, level_name:'safe', zone:'' };
         }
         updateTargetList(id);
       }
@@ -1745,9 +1990,16 @@ function updateTargetList(id){
       posStr = '<span style="color:var(--text-secondary)">📍 定位中...</span>';
     }
     const rssiStr = d.rssi !== undefined ? `<span style="color:var(--text-secondary);font-size:10px;margin-left:4px">${d.rssi}dBm</span>` : '';
-    html+=`<div class="target-item" onclick="showDetail('${did}')">
-      <div class="target-dot"></div>
+    // v2.2.12: 围栏告警标识
+    let gfTag = '';
+    if(d._geofence && d._geofence.alert){
+      const lvlColor = d._geofence.level === 2 ? '#f56c6c' : (d._geofence.level === 3 ? '#e6a23c' : '#f56c6c');
+      gfTag = `<span title="${d._geofence.zone} (${d._geofence.level_name})" style="background:${lvlColor};color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;animation:alertPulse 1s infinite">⚠ ${d._geofence.zone.length>6?d._geofence.zone.substring(0,5)+'..':d._geofence.zone}</span>`;
+    }
+    html+=`<div class="target-item" onclick="showDetail('${did}')" style="${d._geofence&&d._geofence.alert?'background:rgba(245,108,108,0.08);border-left:3px solid #f56c6c':''}">
+      <div class="target-dot" style="${d._geofence&&d._geofence.alert?'background:#f56c6c;box-shadow:0 0 6px #f56c6c':''}"></div>
       <span class="target-id">${did}</span>
+      ${gfTag}
       <span class="brand-tag ${brandCls}" style="margin:0 6px;font-size:9px">${brandLabel}</span>
       ${srcTag}
       <span class="target-sn">${snShort}</span>
