@@ -304,13 +304,13 @@ body {
       <div class="device-info"><div>设备: <span id="deviceName">--</span></div><div>信号: <span id="rssiValue">--</span></div></div>
     </div>
     <div class="card" style="margin-top:12px">
-      <h3>🔌 USB 串口连接（推荐）</h3>
-      <button id="serialBtn" class="btn-connect" onclick="toggleSerial()" style="background:linear-gradient(135deg,#0d8b5f,#10b981);color:#fff;border:none">🔗 USB 连接设备</button>
+      <h3>🔌 USB 直连（推荐）</h3>
+      <button id="serialBtn" class="btn-connect" onclick="toggleUsb()" style="background:linear-gradient(135deg,#0d8b5f,#10b981);color:#fff;border:none">🔗 USB 连接设备</button>
       <div style="font-size:12px;color:var(--text-dim);margin-top:8px;line-height:1.5">
-        用 OTG 数据线连接手机和 ESP32-C5，数据通过 USB 直传，不经过蓝牙，更稳定。<br>
-        <b>仅支持 Android Chrome/Edge</b>（需手机支持 OTG）。
+        用数据线连接电脑/手机和 ESP32-C5，数据通过 USB 直传，不经过蓝牙，更稳定。<br>
+        <b>Win7/华为/安卓 Chrome</b> 均支持（需先安装 Zadig WinUSB 驱动）。
       </div>
-      <div class="device-info"><div>串口: <span id="serialPortInfo">--</span></div></div>
+      <div class="device-info"><div>设备: <span id="serialPortInfo">--</span></div></div>
     </div>
   </div>
 
@@ -1152,109 +1152,231 @@ function onBleData(e){
   }
 }
 
-// ============ Web Serial API (USB CDC) ============
-let serialPort=null, serialReader=null, serialWrCh=null, _serialBuffer='', _serialRunning=false;
+// ============ USB 直连：优先 WebUSB，回退 Web Serial ============
+// ESP32-C5 的原生 USB Serial/JTAG 是 Espressif 自定义设备类（VID=303A PID=1001），
+// 在 Windows 上不会自动生成 COM 口（Win7 需 Zadig 安装 WinUSB 驱动）。
+// WebUSB 可直接通过 WinUSB 读写 bulk 端点，不依赖串口驱动，兼容性远优于 Web Serial。
+let usbDevice=null, usbInEp=null, usbOutEp=null, usbIfNum=-1;
+let serialPort=null, serialReader=null, _serialBuffer='', _serialRunning=false;
+let _usbTransport = null;  // 'webusb' | 'webserial' | null
 
-async function toggleSerial(){
-  if(_serialRunning){ await serialDisconnect(); return; }
-  if(!('serial' in navigator)){
-    addLog('error','[USB] 当前浏览器不支持 Web Serial，请使用 Android Chrome/Edge');
-    alert('当前浏览器不支持 Web Serial API。\n请使用 Android 版 Chrome 或 Edge，并通过 OTG 线连接设备。');
-    return;
-  }
-  try{
-    addLog('info','[USB] 正在选择串口设备...');
-    serialPort = await navigator.serial.requestPort();
-    await serialPort.open({ baudRate: 115200, dataBits:8, stopBits:1, parity:'none', flowControl:'none' });
-    addLog('success','[USB] 串口已打开 (115200 8N1)');
-
-    // 设置串口信息显示
+async function toggleUsb(){
+  if(_serialRunning){ await usbDisconnect(); return; }
+  // 优先 WebUSB（Win7 + Zadig 驱动、Android Chrome 61+ 都支持）
+  if('usb' in navigator){
     try{
-      const info = serialPort.getInfo();
-      document.getElementById('serialPortInfo').textContent =
-        `USB VID=0x${(info.usbVendorId||0).toString(16).padStart(4,'0')} PID=0x${(info.usbProductId||0).toString(16).padStart(4,'0')}`;
-    }catch(_){}
+      addLog('info','[USB] 正在选择 USB 设备...');
+      const device = await navigator.usb.requestDevice({
+        filters: [
+          { vendorId: 0x303A },                              // Espressif 通用 VID
+          { vendorId: 0x303A, productId: 0x1001 }            // ESP32-C5 USB Serial/JTAG
+        ]
+      });
+      await openWebUsb(device);
+      return;
+    }catch(e){
+      if(e.name==='NotFoundError'){
+        addLog('warn','[USB] 未选择设备，已取消');
+        return;
+      }
+      addLog('warn','[USB] WebUSB 连接失败: '+e.message+'，尝试 Web Serial...');
+    }
+  }
+  // 回退到 Web Serial（Win10/11、较新 Android Chrome 可直接识别 CDC）
+  if('serial' in navigator){
+    try{
+      serialPort = await navigator.serial.requestPort();
+      await serialPort.open({ baudRate: 115200, dataBits:8, stopBits:1, parity:'none', flowControl:'none' });
+      await openWebSerial(serialPort);
+      return;
+    }catch(e){
+      addLog('error','[USB] Web Serial 连接失败: '+e.message);
+      return;
+    }
+  }
+  addLog('error','[USB] 当前浏览器不支持 WebUSB / Web Serial，请在 Chrome/Edge 中打开');
+  alert('当前浏览器不支持 USB 直连。\n请使用 Chrome 或 Edge 浏览器。\nWin7 需先用 Zadig 安装 WinUSB 驱动。');
+}
 
-    // 模拟 BLE 连接状态，让 parseResp/UI 流程复用
-    isConnected=true; isPaired=true;
-    updateConnectionUI(true);
-    document.getElementById('deviceName').textContent='RID-Scanner (USB)';
-    document.getElementById('rssiValue').textContent='USB';
-    clearAllDrones();
-    if(map && centerMarker) centerMarker.hide();
-    startUptime();
+// ====== WebUSB 打开流程 ======
+async function openWebUsb(device){
+  await device.open();
+  if(device.configuration===null) await device.selectConfiguration(1);
 
-    // 更新按钮状态
-    const btn=document.getElementById('serialBtn');
-    btn.textContent='🔌 断开 USB';
-    btn.style.background='var(--bg-input)';
-    btn.style.color='var(--red)';
-    btn.style.border='1px solid rgba(245,108,108,0.3)';
+  // ESP32-C5 USB Serial/JTAG 描述符：
+  //   interface 0 = JTAG（bulk IN/OUT endpoint 0x01/0x02）
+  //   interface 1 = 串口（bulk IN endpoint 0x81, bulk OUT endpoint 0x02，不同版本有差异）
+  // 动态查找带 bulk IN + bulk OUT 的接口，避免硬编码端点号
+  let found = null;
+  for(const cfg of device.configurations){
+    for(const iface of cfg.interfaces){
+      let inEp=null, outEp=null;
+      for(const alt of iface.alternates){
+        for(const ep of alt.endpoints){
+          if(ep.type!=='bulk') continue;
+          if(ep.direction==='in' && !inEp) inEp=ep;
+          if(ep.direction==='out' && !outEp) outEp=ep;
+        }
+      }
+      if(inEp && outEp){ found={iface, inEp, outEp}; break; }
+    }
+    if(found) break;
+  }
+  if(!found){
+    // 兜底：只要有任意 bulk IN 端点也能读（数据只读不写时够用）
+    for(const cfg of device.configurations){
+      for(const iface of cfg.interfaces){
+        for(const alt of iface.alternates){
+          const inEp = alt.endpoints.find(e=>e.type==='bulk'&&e.direction==='in');
+          if(inEp){ found={iface, inEp, outEp:null}; break; }
+        }
+        if(found) break;
+      }
+      if(found) break;
+    }
+  }
+  if(!found) throw new Error('未找到可用的 USB bulk 端点');
 
-    _serialRunning=true;
-    _serialBuffer='';
+  await device.claimInterface(found.iface.interfaceNumber);
 
-    // 启动读循环
-    const dec=new TextDecoder();
+  usbDevice = device;
+  usbInEp = found.inEp.endpointNumber;
+  usbOutEp = found.outEp ? found.outEp.endpointNumber : null;
+  usbIfNum = found.iface.interfaceNumber;
+  _usbTransport = 'webusb';
+
+  const vid = device.vendorId, pid = device.productId;
+  document.getElementById('serialPortInfo').textContent =
+    `WebUSB VID=0x${vid.toString(16).padStart(4,'0')} PID=0x${pid.toString(16).padStart(4,'0')} if#${usbIfNum}`;
+  addLog('success',`[USB] WebUSB 已连接 (EP IN=0x${usbInEp.toString(16)}${usbOutEp?` OUT=0x${usbOutEp.toString(16)}`:''})`);
+
+  onUsbConnected('RID-Scanner (USB)');
+
+  _serialRunning=true;
+  _serialBuffer='';
+  const dec=new TextDecoder();
+  const loop = async ()=>{
+    while(_serialRunning && usbDevice){
+      try{
+        // USB FS 每次最多 64 字节，HS 512 字节；取 512 兼顾
+        const result = await usbDevice.transferIn(usbInEp, 512);
+        if(result.status==='ok' && result.data && result.data.byteLength>0){
+          const text = dec.decode(result.data, {stream:true});
+          feedUsbText(text);
+        } else if(result.status==='stall'){
+          try{ await usbDevice.clearHalt('in', usbInEp); }catch(_){}
+        }
+      }catch(e){
+        if(_serialRunning){
+          addLog('warn','[USB] 读取异常，200ms 后重试: '+e.message);
+          await new Promise(r=>setTimeout(r,200));
+        }
+      }
+    }
+  };
+  loop().then(()=>{
+    addLog('warn','[USB] WebUSB 读取已结束');
+  });
+}
+
+// ====== Web Serial 打开流程（回退） ======
+async function openWebSerial(port){
+  _usbTransport = 'webserial';
+  serialPort = port;
+  try{
+    const info = port.getInfo();
+    document.getElementById('serialPortInfo').textContent =
+      `Serial VID=0x${(info.usbVendorId||0).toString(16).padStart(4,'0')} PID=0x${(info.usbProductId||0).toString(16).padStart(4,'0')}`;
+  }catch(_){}
+  addLog('success','[USB] Web Serial 已打开 (115200 8N1)');
+
+  onUsbConnected('RID-Scanner (USB)');
+
+  _serialRunning=true;
+  _serialBuffer='';
+  const dec=new TextDecoder();
+  const loop = async ()=>{
     while(_serialRunning && serialPort && serialPort.readable){
       try{
         serialReader = serialPort.readable.getReader();
         while(true){
           const {value,done}=await serialReader.read();
           if(done) break;
-          const text=dec.decode(value,{stream:true});
-          _serialBuffer+=text;
-          let nlIdx;
-          while((nlIdx=_serialBuffer.indexOf('\n'))>=0){
-            const line=_serialBuffer.slice(0,nlIdx).replace(/\r$/,'').trim();
-            _serialBuffer=_serialBuffer.slice(nlIdx+1);
-            if(!line) continue;
-            // 只处理 DATA: 前缀的数据行，忽略 ESP_LOGI/W 等日志（以 I (/W (/E ( 开头）
-            if(line.startsWith('DATA:')){
-              const payload=line.substring(5).trim();
-              if(payload){
-                addLog('success',`[USB] ${payload.length>80?payload.substring(0,77)+'...':payload}`);
-                parseResp(payload);
-              }
-            }
-            // 其他日志行（I (/W (/E ( 等）静默忽略；如需调试可解开下行
-            // else if(line) addLog('info',`[DBG] ${line.substring(0,80)}`);
-          }
+          feedUsbText(dec.decode(value,{stream:true}));
         }
       }catch(e){
-        if(_serialRunning) addLog('warn','[USB] 读取异常，重试: '+e.message);
+        if(_serialRunning) addLog('warn','[USB] 串口读取异常，重试: '+e.message);
       }finally{
         if(serialReader){ try{serialReader.releaseLock();}catch(_){} serialReader=null; }
       }
       if(_serialRunning) await new Promise(r=>setTimeout(r,200));
     }
-    addLog('warn','[USB] 串口读取已结束');
-  }catch(e){
-    addLog('error','[USB] 连接失败: '+e.message);
-  }finally{
-    _serialRunning=false;
-    if(serialReader){ try{serialReader.cancel();}catch(_){} try{serialReader.releaseLock();}catch(_){} }
-    if(serialPort){ try{await serialPort.close();}catch(_){} serialPort=null; }
-    isConnected=false; isPaired=false;
-    updateConnectionUI(false);
-    stopUptime();
-    const btn=document.getElementById('serialBtn');
-    btn.textContent='🔗 USB 连接设备';
-    btn.style.background='linear-gradient(135deg,#0d8b5f,#10b981)';
-    btn.style.color='#fff';
-    btn.style.border='none';
-    document.getElementById('serialPortInfo').textContent='--';
+  };
+  loop().then(()=>addLog('warn','[USB] Web Serial 读取已结束'));
+}
+
+// ====== 统一：处理从 USB 收到的文本，按行解析 DATA: 前缀 ======
+function feedUsbText(text){
+  _serialBuffer += text;
+  let nlIdx;
+  while((nlIdx=_serialBuffer.indexOf('\n'))>=0){
+    const line=_serialBuffer.slice(0,nlIdx).replace(/\r$/,'').trim();
+    _serialBuffer=_serialBuffer.slice(nlIdx+1);
+    if(!line) continue;
+    if(line.startsWith('DATA:')){
+      const payload=line.substring(5).trim();
+      if(payload){
+        addLog('success',`[USB] ${payload.length>80?payload.substring(0,77)+'...':payload}`);
+        parseResp(payload);
+      }
+    }
+    // 其他日志行（ESP_LOGx 输出）静默忽略；调试可解开下行
+    // else if(line) addLog('info',`[DBG] ${line.substring(0,80)}`);
   }
 }
 
-async function serialDisconnect(){
-  _serialRunning=false;
-  if(serialReader){ try{await serialReader.cancel();}catch(_){} try{serialReader.releaseLock();}catch(_){} serialReader=null; }
-  if(serialPort){ try{await serialPort.close();}catch(_){} serialPort=null; }
-  addLog('warn','[USB] 已断开');
-  // 触发 UI 重置
-  onDisconnected();
+// ====== 连接成功后的 UI/状态复用 ======
+function onUsbConnected(name){
+  isConnected=true; isPaired=true;
+  updateConnectionUI(true);
+  document.getElementById('deviceName').textContent=name;
+  document.getElementById('rssiValue').textContent='USB';
+  clearAllDrones && clearAllDrones();
+  if(map && centerMarker) centerMarker.hide();
+  startUptime();
+  const btn=document.getElementById('serialBtn');
+  btn.textContent='🔌 断开 USB';
+  btn.style.background='var(--bg-input)';
+  btn.style.color='var(--red)';
+  btn.style.border='1px solid rgba(245,108,108,0.3)';
 }
+
+async function usbDisconnect(){
+  _serialRunning=false;
+  if(_usbTransport==='webusb' && usbDevice){
+    try{ await usbDevice.releaseInterface(usbIfNum); }catch(_){}
+    try{ await usbDevice.close(); }catch(_){}
+    usbDevice=null; usbInEp=null; usbOutEp=null; usbIfNum=-1;
+  }
+  if(_usbTransport==='webserial' && serialPort){
+    if(serialReader){ try{await serialReader.cancel();}catch(_){} try{serialReader.releaseLock();}catch(_){} serialReader=null; }
+    try{ await serialPort.close(); }catch(_){}
+    serialPort=null;
+  }
+  _usbTransport=null;
+  addLog('warn','[USB] 已断开');
+  onDisconnected();
+  const btn=document.getElementById('serialBtn');
+  btn.textContent='🔗 USB 连接设备';
+  btn.style.background='linear-gradient(135deg,#0d8b5f,#10b981)';
+  btn.style.color='#fff';
+  btn.style.border='none';
+  document.getElementById('serialPortInfo').textContent='--';
+}
+
+// 兼容旧代码可能的引用
+const toggleSerial = toggleUsb;
+const serialDisconnect = usbDisconnect;
 
 function parseResp(text){
   // 配对结果处理
