@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>RID 侦测监控 v2.3.0</title>
+<title>RID 侦测监控 v2.3.1</title>
 <script src="https://webapi.amap.com/loader.js"></script>
 <style>
 :root {
@@ -286,11 +286,12 @@ body {
 .brand-unknown { background: rgba(0,0,0,0.04); color: #999; }
 
 /* ============ v2.3.0: 雷达视图 ============ */
-.radar-wrap { position: relative; width: 100%; display: flex; justify-content: center; margin-bottom: 10px; }
-.radar-canvas { background: #0a1929; border-radius: 50%; display: block; box-shadow: inset 0 0 20px rgba(64,158,255,0.15), 0 0 12px rgba(64,158,255,0.2); cursor: crosshair; }
+.radar-wrap { position: relative; width: 100%; display: flex; flex-direction:column; align-items:center; margin-bottom: 10px; gap:6px; }
+.radar-canvas { background: #0a1929; border-radius: 50%; display: block; box-shadow: inset 0 0 30px rgba(64,158,255,0.25), 0 0 18px rgba(64,158,255,0.35); cursor: crosshair; }
 .radar-tip { position: absolute; pointer-events: none; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; padding: 5px 8px; border-radius: 6px; white-space: nowrap; z-index: 20; display: none; line-height: 1.5; border: 1px solid rgba(64,158,255,0.4); }
 .radar-tip.show { display: block; }
-.radar-hint { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); background: rgba(230,162,60,0.9); color: #fff; font-size: 10px; padding: 3px 8px; border-radius: 10px; white-space: nowrap; z-index: 5; }
+.radar-status { font-size:11px; color:#e6a23c; background:rgba(230,162,60,0.12); padding:3px 10px; border-radius:10px; white-space:nowrap; }
+.radar-status.ok { color:#67c23a; background:rgba(103,194,58,0.12); }
 
 /* ============ v2.3.0: 历史记录 Tab ============ */
 .hist-list { max-height: 60vh; overflow-y: auto; }
@@ -453,6 +454,7 @@ body {
       <div class="radar-wrap" id="radarWrap">
         <canvas id="radarCanvas" class="radar-canvas"></canvas>
         <div class="radar-tip" id="radarTip"></div>
+        <div class="radar-status" id="radarStatus">等待信号...</div>
       </div>
     </div>
     <div class="card">
@@ -2889,10 +2891,9 @@ function initRadar(){
 function drawRadar(){
   if(!_radarCanvas) initRadar();
   if(!_radarCanvas || !_radarCtx) return;
-  // 若容器宽度变化，重新适配
   const wrap = document.getElementById('radarWrap');
   if(wrap){
-    const wantSize = Math.min(wrap.clientWidth - 8, 280);
+    const wantSize = Math.min(wrap.clientWidth - 16, 300);
     if(Math.abs(wantSize - _radarCanvas.clientWidth) > 4){
       _radarCanvas.style.width = wantSize + 'px';
       _radarCanvas.style.height = wantSize + 'px';
@@ -2902,39 +2903,39 @@ function drawRadar(){
     }
   }
   const ctx = _radarCtx;
-  const W = parseInt(_radarCanvas.style.width), H = parseInt(_radarCanvas.style.height);
+  const W = parseInt(_radarCanvas.style.width)||280, H = parseInt(_radarCanvas.style.height)||280;
   const cx = W/2, cy = H/2;
-  const R = Math.min(W,H)/2 - 8;
+  const R = Math.min(W,H)/2 - 14;
   ctx.clearRect(0,0,W,H);
   _radarHitAreas.length = 0;
 
-  // 背景
+  // 背景深色 + 径向渐晕
   const bg = ctx.createRadialGradient(cx,cy,0,cx,cy,R);
-  bg.addColorStop(0, '#0d2840');
-  bg.addColorStop(1, '#061220');
+  bg.addColorStop(0, '#0e2d4a');
+  bg.addColorStop(0.7, '#081c30');
+  bg.addColorStop(1, '#030a14');
   ctx.fillStyle = bg;
   ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
 
-  const ids = Object.keys(droneData);
-  // 无目标
-  if(ids.length === 0){
-    ctx.strokeStyle = 'rgba(64,158,255,0.25)'; ctx.lineWidth = 1;
-    for(let i=1;i<=3;i++){
-      ctx.beginPath(); ctx.arc(cx,cy,R*i/3,0,Math.PI*2); ctx.stroke();
-    }
-    ctx.strokeStyle = 'rgba(64,158,255,0.2)';
-    ctx.beginPath(); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '12px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('空域扫描中...', cx, cy+4);
-    // N 标记
-    ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 11px sans-serif';
-    ctx.fillText('N', cx, cy-R-1);
-    return;
+  // 外圈刻度
+  ctx.strokeStyle = 'rgba(80,180,255,0.35)'; ctx.lineWidth = 1;
+  for(let a=0; a<360; a+=30){
+    const rad = (a-90)*Math.PI/180;
+    const x1 = cx + (R-4)*Math.cos(rad), y1 = cy + (R-4)*Math.sin(rad);
+    const x2 = cx + R*Math.cos(rad), y2 = cy + R*Math.sin(rad);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  for(let a=0; a<360; a+=10){
+    const rad = (a-90)*Math.PI/180;
+    const x1 = cx + (R-2)*Math.cos(rad), y1 = cy + (R-2)*Math.sin(rad);
+    const x2 = cx + R*Math.cos(rad), y2 = cy + R*Math.sin(rad);
+    ctx.strokeStyle = 'rgba(80,180,255,0.18)';
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
   }
 
-  // 计算距离范围
-  let maxDist = 0;
+  const ids = Object.keys(droneData);
   const gpsMode = selfGpsValid && selfWgsLat !== null;
+  let maxDist = 0;
   const validPts = [];
   ids.forEach(id=>{
     const d = droneData[id];
@@ -2943,76 +2944,104 @@ function drawRadar(){
       if(isFinite(dist)){ validPts.push({id, d, dist}); if(dist>maxDist) maxDist=dist; }
     }
   });
-
   let rangeM = 0;
-  if(gpsMode && validPts.length){
-    rangeM = Math.max(100, Math.min(20000, maxDist*1.2));
-  } else {
-    rangeM = 0; // 信号模式
-  }
+  if(gpsMode && validPts.length) rangeM = Math.max(100, Math.min(20000, maxDist*1.2));
 
-  // 距离环
-  ctx.strokeStyle = 'rgba(64,158,255,0.25)'; ctx.lineWidth = 1;
-  for(let i=1;i<=3;i++){
-    ctx.beginPath(); ctx.arc(cx,cy,R*i/3,0,Math.PI*2); ctx.stroke();
+  // 距离环（4圈）
+  ctx.strokeStyle = 'rgba(80,180,255,0.22)'; ctx.lineWidth = 1;
+  for(let i=1;i<=4;i++){
+    ctx.beginPath(); ctx.arc(cx,cy,R*i/4,0,Math.PI*2); ctx.stroke();
   }
-  // 距离标签
+  // 距离标签（右下角沿斜线）
   if(gpsMode && validPts.length){
-    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '9px sans-serif'; ctx.textAlign='right';
-    for(let i=1;i<=3;i++){
-      const m = rangeM*i/3;
+    ctx.fillStyle = 'rgba(140,210,255,0.7)'; ctx.font = '9px sans-serif'; ctx.textAlign='right';
+    for(let i=1;i<=4;i++){
+      const m = rangeM*i/4;
       const label = m>=1000 ? (m/1000).toFixed(m>=10000?0:1)+'km' : Math.round(m)+'m';
-      ctx.fillText(label, cx+R*i/3-3, cy-3);
+      const rr = R*i/4;
+      ctx.fillText(label, cx + rr*0.707 - 2, cy + rr*0.707 - 2);
     }
   }
   // 十字线
-  ctx.strokeStyle = 'rgba(64,158,255,0.2)';
-  ctx.beginPath(); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.stroke();
-  // 扫描扇形（视觉效果）
-  const sweepAngle = (Date.now()/1500) % (Math.PI*2);
+  ctx.strokeStyle = 'rgba(80,180,255,0.2)';
+  ctx.beginPath();
+  ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R);
+  ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy);
+  ctx.stroke();
+  // 对角线
+  ctx.strokeStyle = 'rgba(80,180,255,0.1)';
+  ctx.beginPath();
+  ctx.moveTo(cx-R*0.707,cy-R*0.707); ctx.lineTo(cx+R*0.707,cy+R*0.707);
+  ctx.moveTo(cx+R*0.707,cy-R*0.707); ctx.lineTo(cx-R*0.707,cy+R*0.707);
+  ctx.stroke();
+
+  // 扫描扇形（持续旋转）
+  const sweepAngle = (Date.now()/1800) % (Math.PI*2);
   const grad = ctx.createConicGradient ? ctx.createConicGradient(sweepAngle, cx, cy) : null;
   if(grad){
-    grad.addColorStop(0, 'rgba(64,158,255,0.35)');
-    grad.addColorStop(0.08, 'rgba(64,158,255,0)');
-    grad.addColorStop(1, 'rgba(64,158,255,0)');
+    grad.addColorStop(0, 'rgba(80,220,255,0.55)');
+    grad.addColorStop(0.06, 'rgba(80,220,255,0.25)');
+    grad.addColorStop(0.18, 'rgba(80,220,255,0)');
+    grad.addColorStop(1, 'rgba(80,220,255,0)');
     ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,R,sweepAngle-0.5,sweepAngle); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,sweepAngle-0.6,sweepAngle); ctx.closePath(); ctx.fill();
   }
-  // N 标记
-  ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('N', cx, cy-R-2);
+  // 扫描线亮边
+  ctx.strokeStyle = 'rgba(150,240,255,0.9)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+R*Math.cos(sweepAngle), cy+R*Math.sin(sweepAngle));
+  ctx.stroke();
 
-  // GPS 无效提示
-  if(!gpsMode){
-    // 信号模式：按 RSSI 强弱排列在同心圆上，角度均匀
+  // N/E/S/W 方位标
+  ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('N', cx, cy-R+12);
+  ctx.fillStyle = 'rgba(200,220,255,0.6)'; ctx.font = '10px sans-serif';
+  ctx.fillText('E', cx+R-7, cy+3);
+  ctx.fillText('S', cx, cy+R-5);
+  ctx.fillText('W', cx-R+8, cy+3);
+
+  // 状态条（DOM）
+  const statEl = document.getElementById('radarStatus');
+  if(statEl){
+    if(ids.length === 0){
+      statEl.textContent = '⏳ 空域扫描中...';
+      statEl.classList.remove('ok');
+    } else if(!gpsMode){
+      statEl.textContent = `⚠ 无GPS · ${ids.length}个目标按信号强度分布`;
+      statEl.classList.remove('ok');
+    } else if(validPts.length === 0){
+      statEl.textContent = `⚠ GPS已定位但目标无位置 · ${ids.length}个信号`;
+      statEl.classList.remove('ok');
+    } else {
+      statEl.textContent = `🛰️ ${validPts.length}个目标 · 量程 ${rangeM>=1000?(rangeM/1000).toFixed(1)+'km':Math.round(rangeM)+'m'}`;
+      statEl.classList.add('ok');
+    }
+  }
+
+  // 画目标
+  if(ids.length === 0){
+    ctx.fillStyle = 'rgba(180,220,255,0.6)'; ctx.font = '12px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('SEARCHING...', cx, cy+4);
+  } else if(!gpsMode){
     ids.forEach((id, i)=>{
       const d = droneData[id];
       const rssi = d.rssi !== undefined ? d.rssi : -100;
-      // 归一化：-40(近/强)→0.15R，-100(远/弱)→0.95R
       const norm = Math.max(0, Math.min(1, (rssi + 100) / 60));
-      const r = R * (1 - 0.82*norm + 0.05);
+      const r = R * (1 - 0.72*norm + 0.06);
       const angle = -Math.PI/2 + (Math.PI*2 * i / ids.length);
       const px = cx + r * Math.cos(angle);
       const py = cy + r * Math.sin(angle);
       drawRadarDot(ctx, id, d, px, py, rssi);
     });
-    // 顶部提示
-    ctx.fillStyle = 'rgba(230,162,60,0.95)';
-    ctx.font = '10px sans-serif'; ctx.textAlign='center';
-    const tw = ctx.measureText('⚠ 无GPS定位，按信号强度分布').width + 12;
-    ctx.fillStyle = 'rgba(230,162,60,0.9)';
-    roundRect(ctx, cx-tw/2, 6, tw, 16, 8); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.fillText('⚠ 无GPS定位，按信号强度分布', cx, 17);
   } else if(validPts.length === 0){
-    // GPS 有效但所有目标都没坐标
-    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '12px sans-serif'; ctx.textAlign='center';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '11px sans-serif'; ctx.textAlign='center';
     ctx.fillText('目标无位置信息', cx, cy+4);
   } else {
-    // 真实极坐标投影
     validPts.forEach(p=>{
       const bearing = calcBearing(selfWgsLat,selfWgsLon,p.d.wgs_lat,p.d.wgs_lon);
       const r = R * Math.min(1, p.dist / rangeM);
-      const angle = (bearing - 90) * Math.PI/180; // 0°=北(上)
+      const angle = (bearing - 90) * Math.PI/180;
       const px = cx + r * Math.cos(angle);
       const py = cy + r * Math.sin(angle);
       drawRadarDot(ctx, p.id, p.d, px, py, p.d.rssi);
@@ -3024,6 +3053,10 @@ function drawRadar(){
   ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fill();
   ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2); ctx.stroke();
+  // 中心呼吸光环
+  const pulse = (Date.now()%1600)/1600;
+  ctx.strokeStyle = `rgba(64,158,255,${0.5*(1-pulse)})`; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx,cy,6+10*pulse,0,Math.PI*2); ctx.stroke();
 }
 
 function roundRect(ctx,x,y,w,h,r){
@@ -3109,11 +3142,13 @@ function onRadarClick(e){
 }
 function startRadarTimer(){
   if(_radarTimer) return;
-  _radarTimer = setInterval(()=>{
-    // 仅在目标 tab 可见时重绘，省 CPU
+  // 用 rAF 约 60fps 驱动扫描动画，tab 不可见时浏览器自动暂停
+  const loop = ()=>{
     const tab = document.getElementById('tab-targets');
     if(tab && tab.classList.contains('active')) drawRadar();
-  }, 2000);
+    _radarTimer = requestAnimationFrame(loop);
+  };
+  _radarTimer = requestAnimationFrame(loop);
 }
 
 // ---------------- 信道占用 ----------------
@@ -3404,6 +3439,7 @@ function renderHistoryList(){
     let html = '';
     arr.forEach(rec=>{
       const pts = rec.trackPoints ? rec.trackPoints.length : 0;
+      const rssiN = rec.rssiHist ? rec.rssiHist.length : 0;
       const dur = (rec.firstSeen && rec.lastSeen) ? _fmtDur(rec.lastSeen - rec.firstSeen) : '--';
       const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || '未知');
       html += `<div class="hist-item">
@@ -3420,8 +3456,10 @@ function renderHistoryList(){
           <span>最后RSSI: <b>${rec.lastRssi!==null&&rec.lastRssi!==undefined?rec.lastRssi+'dBm':'--'}</b></span>
         </div>
         <div class="hist-actions">
-          ${pts>=2?`<button class="hist-btn primary" onclick="openTrackReplay('${rec.id}')">🗺️ 查看轨迹</button>`:'<span style="font-size:10px;color:var(--text-secondary)">无GPS轨迹</span>'}
+          ${pts>=2?`<button class="hist-btn primary" onclick="openTrackReplay('${rec.id}')">🗺️ 查看轨迹</button>`:''}
           ${pts>=2?`<button class="hist-btn" onclick="exportHistoryKML('${rec.id}')">📥 导出KML</button>`:''}
+          ${pts<2 && rssiN>=2?`<button class="hist-btn primary" onclick="openRssiReplay('${rec.id}')">📶 查看信号</button>`:''}
+          ${pts<2 && rssiN<2?`<span style="font-size:10px;color:var(--text-secondary)">仅基本信息</span>`:''}
           <button class="hist-btn danger" onclick="deleteHistory('${rec.id}')">🗑 删除</button>
         </div>
       </div>`;
@@ -3448,11 +3486,109 @@ function openHistTrackForSn(sn){
   findLatestTrackBySn(sn).then(rec=>{
     if(rec){
       closeDetail();
-      openTrackReplay(rec.id);
+      if(rec.trackPoints && rec.trackPoints.length>=2) openTrackReplay(rec.id);
+      else if(rec.rssiHist && rec.rssiHist.length>=2) openRssiReplay(rec.id);
+      else alert('该记录无轨迹/信号数据');
     } else {
-      alert('未找到该 SN 的历史轨迹');
+      alert('未找到该 SN 的历史记录');
     }
   });
+}
+
+// v2.3.1: 无GPS记录的RSSI信号回放（复用轨迹回放弹窗，但只画RSSI曲线）
+function openRssiReplay(id){
+  histGetAll().then(arr=>{
+    const rec = arr.find(x=>x.id===id);
+    if(!rec || !rec.rssiHist || rec.rssiHist.length<2){ alert('无RSSI数据'); return; }
+    document.getElementById('trackReplayTitle').textContent = `📶 信号记录 - ${rec.sn}`;
+    const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || '');
+    document.getElementById('trackReplaySubtitle').textContent = `${brandText} · ${_fmtHistTime(rec.firstSeen)} ~ ${_fmtHistTime(rec.lastSeen)} · ${rec.rssiHist.length}个采样`;
+    document.getElementById('trackReplayOverlay').classList.add('show');
+    // 隐藏地图，显示RSSI canvas
+    setTimeout(()=>{
+      const mapEl = document.getElementById('trackReplayMap');
+      if(mapEl) mapEl.style.display='none';
+      let cv = document.getElementById('rssiReplayCanvas');
+      if(!cv){
+        cv = document.createElement('canvas');
+        cv.id = 'rssiReplayCanvas';
+        cv.style.width='100%'; cv.style.height='240px';
+        cv.style.background='#0a1929'; cv.style.borderRadius='8px';
+        mapEl.parentNode.insertBefore(cv, mapEl);
+      }
+      cv.style.display='block';
+      drawRssiReplay(cv, rec.rssiHist, rec.avgRssi, rec.lastRssi);
+      // 信息区
+      const info = document.getElementById('trackReplayInfo');
+      if(info){
+        const minR = Math.min(...rec.rssiHist.map(p=>p.r));
+        const maxR = Math.max(...rec.rssiHist.map(p=>p.r));
+        info.innerHTML = `
+          <div class="ti"><div class="l">平均RSSI</div><div class="v">${rec.avgRssi?rec.avgRssi.toFixed(1)+'dBm':'--'}</div></div>
+          <div class="ti"><div class="l">最强/最弱</div><div class="v">${maxR}/${minR}dBm</div></div>
+          <div class="ti"><div class="l">最后RSSI</div><div class="v">${rec.lastRssi?rec.lastRssi+'dBm':'--'}</div></div>`;
+      }
+      // 隐藏播放控制（信号曲线无需播放）
+      const playRow = document.getElementById('trackPlayRow');
+      if(playRow) playRow.style.display='none';
+    }, 100);
+  });
+}
+
+function drawRssiReplay(cv, hist, avgRssi, lastRssi){
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 320, H = 240;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const pad={l:36,r:12,t:16,b:24}, w=W-pad.l-pad.r, h=H-pad.t-pad.b;
+  let dMin=Infinity,dMax=-Infinity;
+  hist.forEach(p=>{ if(p.r<dMin)dMin=p.r; if(p.r>dMax)dMax=p.r; });
+  let yMin=Math.min(-110,Math.floor((dMin-5)/20)*20), yMax=Math.max(-15,Math.ceil((dMax+5)/20)*20);
+  if(yMax-yMin<40) yMax=yMin+40;
+  const yOf=v=>pad.t+h*(1-(v-yMin)/(yMax-yMin));
+  // 网格
+  ctx.strokeStyle='#1d3a5c'; ctx.lineWidth=1; ctx.fillStyle='#7fb3d5'; ctx.font='10px sans-serif';
+  const gMin=Math.ceil(yMin/20)*20, gMax=Math.floor(yMax/20)*20;
+  for(let gv=gMin; gv<=gMax; gv+=20){
+    const y=yOf(gv);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillText(gv, 4, y+3);
+  }
+  // 区域填充
+  const tMin=hist[0].t, tMax=hist[hist.length-1].t;
+  const xOf=t=>pad.l+(tMax===tMin?w/2:w*(t-tMin)/(tMax-tMin));
+  ctx.beginPath();
+  ctx.moveTo(xOf(hist[0].t), yOf(hist[0].r));
+  hist.forEach(p=>ctx.lineTo(xOf(p.t), yOf(p.r)));
+  ctx.lineTo(xOf(hist[hist.length-1].t), pad.t+h);
+  ctx.lineTo(xOf(hist[0].t), pad.t+h);
+  ctx.closePath();
+  ctx.fillStyle='rgba(64,158,255,0.15)'; ctx.fill();
+  // 平均线
+  if(avgRssi){
+    ctx.strokeStyle='rgba(230,162,60,0.5)'; ctx.setLineDash([4,3]); ctx.lineWidth=1;
+    const ay=yOf(avgRssi);
+    ctx.beginPath(); ctx.moveTo(pad.l,ay); ctx.lineTo(W-pad.r,ay); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#e6a23c'; ctx.fillText('avg '+avgRssi.toFixed(1), W-pad.r-55, ay-3);
+  }
+  // 折线
+  ctx.beginPath();
+  ctx.moveTo(xOf(hist[0].t), yOf(hist[0].r));
+  hist.forEach(p=>ctx.lineTo(xOf(p.t), yOf(p.r)));
+  ctx.strokeStyle='#409eff'; ctx.lineWidth=2; ctx.stroke();
+  // 末端点
+  const last=hist[hist.length-1];
+  ctx.fillStyle='#67c23a';
+  ctx.beginPath(); ctx.arc(xOf(last.t), yOf(last.r), 4, 0, Math.PI*2); ctx.fill();
+  // 时间标签
+  ctx.fillStyle='#7fb3d5'; ctx.font='10px monospace';
+  const fmtT=t=>{const d=new Date(t);return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')+':'+d.getSeconds().toString().padStart(2,'0');};
+  ctx.fillText(fmtT(tMin), pad.l, H-6);
+  ctx.textAlign='right';
+  ctx.fillText(fmtT(tMax), W-pad.r, H-6);
 }
 
 // ---------------- 轨迹回放弹窗（独立 AMap 实例） ----------------
@@ -3468,6 +3604,13 @@ function openTrackReplay(id){
     document.getElementById('trackReplayTitle').textContent = `🗺️ 历史轨迹 - ${rec.sn}`;
     const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || '');
     document.getElementById('trackReplaySubtitle').textContent = `${brandText} · ${_fmtHistTime(rec.firstSeen)} ~ ${_fmtHistTime(rec.lastSeen)}`;
+    // v2.3.1: 确保地图和播放栏可见（可能被 RSSI 回放隐藏过）
+    const mapEl = document.getElementById('trackReplayMap');
+    if(mapEl) mapEl.style.display='';
+    const cv = document.getElementById('rssiReplayCanvas');
+    if(cv) cv.style.display='none';
+    const playRow = document.getElementById('trackPlayRow');
+    if(playRow) playRow.style.display='';
     document.getElementById('trackReplayOverlay').classList.add('show');
     // 等弹窗动画结束再初始化地图
     setTimeout(()=>initTrackReplayMap(rec), 350);
@@ -3602,6 +3745,13 @@ function destroyTrackReplayMap(){
 function closeTrackReplay(){
   document.getElementById('trackReplayOverlay').classList.remove('show');
   destroyTrackReplayMap();
+  // v2.3.1: 恢复 RSSI 回放时隐藏的元素
+  const mapEl = document.getElementById('trackReplayMap');
+  if(mapEl) mapEl.style.display='';
+  const cv = document.getElementById('rssiReplayCanvas');
+  if(cv) cv.style.display='none';
+  const playRow = document.getElementById('trackPlayRow');
+  if(playRow) playRow.style.display='';
   _trkRec = null;
 }
 
@@ -3620,7 +3770,7 @@ function buildKML(placemarks){
   kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n';
   kml += '<Document>\n';
   kml += '  <name>RID 侦测轨迹导出</name>\n';
-  kml += '  <description>由 RID 侦测监控 v2.3.0 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
+  kml += '  <description>由 RID 侦测监控 v2.3.1 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
   kml += '  <Style id="ridLine"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>\n';
   kml += '  <Style id="ridStart"><IconStyle><color>ff00ff00</color><scale>1</scale></IconStyle></Style>\n';
   kml += '  <Style id="ridEnd"><IconStyle><color>ff0000ff</color><scale>1</scale></IconStyle></Style>\n';
