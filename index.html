@@ -623,7 +623,7 @@ function showDetail(id) {
         <div class="df-label">型号</div>
         <div class="df-value">${bInfo.model || '--'}</div>
       </div>
-      <div class="d-field"><div class="df-label">无人机类型</div><div class="df-value">${d.ua_type}</div></div>
+      <div class="d-field"><div class="df-label">无人机类型</div><div class="df-value">${d.ua_type || '--'}</div></div>
       <div class="d-field"><div class="df-label">设备编号</div><div class="df-value">${id}</div></div>
       <div class="d-field highlight full">
         <div class="df-label">发现方式</div>
@@ -689,18 +689,19 @@ function showDetail(id) {
       ${d._has_rel ? `
       <div class="d-field highlight full">
         <div class="df-label">相对高度${refLabel ? ' ('+refLabel+')' : ''}</div>
-        <div class="df-value" style="color:#e6a23c;font-size:18px;font-weight:700">${Number(d.alt).toFixed(1)} m</div>
+        <div class="df-value" style="color:#e6a23c;font-size:18px;font-weight:700">${Number(d.alt||0).toFixed(1)} m</div>
       </div>` : ''}
       <div class="d-field"><div class="df-label">气压高度 (Baro)</div><div class="df-value">${d.alt_baro ? d.alt_baro.toFixed(1)+' m' : '--'}</div></div>
       <div class="d-field"><div class="df-label">大地高度 (MSL/HAE)</div><div class="df-value">${d.alt_geo ? d.alt_geo.toFixed(1)+' m' : '--'}</div></div>
       ${d.gb_rel_alt !== undefined ? `<div class="d-field"><div class="df-label">GB46750 相对高度</div><div class="df-value">${d.gb_rel_alt.toFixed(1)} m</div></div>` : ''}
-      <div class="d-field"><div class="df-label">飞行速度</div><div class="df-value">${d.speed} m/s</div></div>
-      <div class="d-field"><div class="df-label">航速 km/h</div><div class="df-value">${(d.speed * 3.6).toFixed(1)} km/h</div></div>
-      <div class="d-field"><div class="df-label">航向角</div><div class="df-value">${d.heading}°</div></div>
+      <div class="d-field"><div class="df-label">飞行速度</div><div class="df-value">${Number(d.speed||0).toFixed(1)} m/s</div></div>
+      <div class="d-field"><div class="df-label">航速 km/h</div><div class="df-value">${(Number(d.speed||0) * 3.6).toFixed(1)} km/h</div></div>
+      <div class="d-field"><div class="df-label">航向角</div><div class="df-value">${Number(d.heading||0).toFixed(0)}°</div></div>
     </div>
   </div>`;
 
-  // === 无人机位置 ===
+  // === 无人机位置 === v2.2.8: 无坐标时显示定位中，不再 toFixed 崩溃
+  if(d.wgs_lat !== undefined && d.wgs_lon !== undefined && !d._noLoc){
   html += `<div class="detail-section">
     <div class="detail-section-title"><span class="icon">📍</span> 无人机位置</div>
     <div class="d-grid">
@@ -708,6 +709,12 @@ function showDetail(id) {
       <div class="d-field full highlight"><div class="df-label">GCJ-02 坐标 (高德地图)</div><div class="df-value">${d.gcj_lat.toFixed(6)}, ${d.gcj_lon.toFixed(6)}</div></div>
     </div>
   </div>`;
+  } else {
+  html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">📍</span> 无人机位置</div>
+    <div class="d-grid"><div class="d-field full"><div class="df-value" style="text-align:center;color:#e6a23c;padding:12px 0">📍 定位中... 等待位置数据</div></div></div>
+  </div>`;
+  }
 
   // === 飞手位置 + 二维码 ===
   if(d.op_lat && d.op_lon) {
@@ -1487,6 +1494,11 @@ function parseResp(text){
         const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
         const id = hasSN ? msg.basic_id.uas_id : (msg.mac ? ('MAC_'+msg.mac) : (msg.id || ('UAV_'+(msg.ts||''))));
         if(!droneData[id]) droneData[id] = { history: [], _macs: {} };
+        // v2.2.8: 初始化默认值，防止无坐标目标点详情时 toFixed 崩溃
+        if(droneData[id].speed === undefined) droneData[id].speed = 0;
+        if(droneData[id].heading === undefined) droneData[id].heading = 0;
+        if(droneData[id].alt === undefined) droneData[id].alt = 0;
+        if(droneData[id].ua_type === undefined) droneData[id].ua_type = '未知';
         // 基本信息
         if(hasSN) droneData[id].sn = msg.basic_id.uas_id;
         if(msg.basic_id && msg.basic_id.ua_type) droneData[id].ua_type = msg.basic_id.ua_type;
