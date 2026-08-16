@@ -319,6 +319,9 @@ body {
         <div class="info-item"><div class="label">GPS 状态</div><div class="value orange" id="gpsStatus">未定位</div></div>
         <div class="info-item"><div class="label">运行时间</div><div class="value" id="uptime">00:00:00</div></div>
         <div class="info-item"><div class="label">当前信道</div><div class="value" id="currentChannel">--</div></div>
+        <div class="info-item"><div class="label">侦测速率</div><div class="value" id="statPktRate">--</div></div>
+        <div class="info-item"><div class="label">空闲内存</div><div class="value" id="statFreeHeap">--</div></div>
+        <div class="info-item"><div class="label">累计包数</div><div class="value" id="statTotalPkts">--</div></div>
       </div>
     </div>
   </div>
@@ -1124,11 +1127,14 @@ function onDisconnected(){
   document.getElementById('gpsStatus').className='value orange';
   document.getElementById('firmwareVer').textContent='--';
   document.getElementById('currentChannel').textContent='--';
+  document.getElementById('statPktRate').textContent='--';
+  document.getElementById('statFreeHeap').textContent='--';
+  document.getElementById('statTotalPkts').textContent='--';
 }
 function updateConnectionUI(c){
-  const b=document.getElementById('statusBadge'),btn=document.getElementById('connectBtn');
-  if(c){b.textContent=isPaired?'已连接(已配对)':'已连接(待配对)';b.className='badge connected';btn.textContent='🔌 断开连接';btn.className='btn-connect disconnect';}
-  else{b.textContent='未连接';b.className='badge';btn.textContent='📡 连接 RID-Scanner';btn.className='btn-connect';document.getElementById('deviceName').textContent='--';document.getElementById('rssiValue').textContent='--';isPaired=false;}
+  const b=document.getElementById('statusBadge');
+  if(c){b.textContent='已连接';b.className='badge connected';}
+  else{b.textContent='未连接';b.className='badge';isPaired=false;}
 }
 function sendCmd(cmd){
   if(!rxChar){addLog('warn','[BLE] 发送失败: 通道未建立');return}
@@ -1426,16 +1432,24 @@ function parseResp(text){
     try {
       // 启动横幅：解析固件版本、信道、最大目标数等
       if(msg.evt === 'startup'){
-        if(msg.version) document.getElementById('firmwareVer').textContent=msg.version;
+        if(msg.version){ document.getElementById('firmwareVer').textContent=msg.version; try{localStorage.setItem('rid_fw_ver',msg.version);}catch(e){} }
         if(msg.channel !== undefined) document.getElementById('currentChannel').textContent=msg.channel;
         if(msg.max_uavs !== undefined) addLog('info','[固件] v'+msg.version+' 已就绪，最大支持 '+msg.max_uavs+' 目标，信道 '+msg.channel);
         else addLog('info','[固件] v'+(msg.version||'?')+' 已就绪');
         return;
       }
-      // 周期性状态报告：active_uavs 字段
+      // 周期性状态报告
       if(msg.evt === 'status'){
         if(msg.active_uavs !== undefined) document.getElementById('activeTargets').textContent=msg.active_uavs;
-        if(msg.rid_per_sec !== undefined){ /* 可扩展：显示侦测速率 */ }
+        // v2.2.10: 用固件 loop_min 同步运行时间
+        if(msg.loop_min !== undefined){
+          uptimeSeconds = msg.loop_min * 60;
+          if(!uptimeTimer) startUptime();
+        }
+        // 更新扩展状态
+        if(msg.pkts_per_sec !== undefined){ const el=document.getElementById('statPktRate'); if(el) el.textContent=msg.pkts_per_sec.toFixed(1); }
+        if(msg.free_heap !== undefined){ const el=document.getElementById('statFreeHeap'); if(el) el.textContent=(msg.free_heap/1024).toFixed(0)+'KB'; }
+        if(msg.total_pkts !== undefined){ const el=document.getElementById('statTotalPkts'); if(el) el.textContent=msg.total_pkts.toLocaleString(); }
         return;
       }
       // 空域空闲通知
@@ -1890,7 +1904,10 @@ function startStaleCleanTimer(){
   }, 10000); // 每10秒扫描一次
 }
 
-window.addEventListener('load',()=>{initMap();startStaleCleanTimer()});
+window.addEventListener('load',()=>{
+  initMap();startStaleCleanTimer();
+  try{const v=localStorage.getItem('rid_fw_ver');if(v)document.getElementById('firmwareVer').textContent=v;}catch(e){}
+});
 </script>
 </body>
 </html>
