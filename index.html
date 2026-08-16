@@ -1145,7 +1145,10 @@ function onBleData(e){
   const lines=_bleBuffer.split('\n');
   _bleBuffer=lines.pop()||'';
   for(const line of lines){
-    const t=line.trim();
+    let t=line.trim();
+    if(!t)continue;
+    // 统一剥离 DATA: 前缀（固件 v2.2.0+ 所有数据行带此前缀）
+    if(t.startsWith('DATA:')) t=t.substring(5).trim();
     if(!t)continue;
     addLog('success',`[接收] ${t.length>80?t.substring(0,77)+'...':t}`);
     parseResp(t);
