@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>RID 侦测监控 v2.3.4</title>
+<title>RID 侦测监控 v2.4.0</title>
 <script src="https://webapi.amap.com/loader.js"></script>
 <style>
 :root {
@@ -431,6 +431,7 @@ body {
       <div class="export-row">
         <button class="btn-export" onclick="exportCSV()">📊 导出 CSV</button>
         <button class="btn-export" onclick="exportKML()">🗺️ 导出 KML</button>
+        <button class="btn-export" onclick="exportReport()" style="background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);color:#f59e0b">📄 执法报告</button>
       </div>
       <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
         导出当前在线目标的完整数据。KML 使用 GCJ-02 坐标（在高德地图/Google Earth 中国区显示无偏移）。
@@ -2782,6 +2783,122 @@ function addLog(type,msg){
 }
 
 // ============ 导出 CSV ============ v2.3.0: 增强列
+function exportReport() {
+  const ids = Object.keys(droneData);
+  const now = new Date();
+  const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const serialNo = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+
+  let rows = '';
+  let alertRows = '';
+  let maxRssi = -200;
+  let totalTracks = 0;
+
+  ids.forEach((id, i) => {
+    const d = droneData[id];
+    const bi = lookupSN(d.sn, d._lastMAC);
+    const lat = d.wgs_lat?.toFixed(6) || '—';
+    const lon = d.wgs_lon?.toFixed(6) || '—';
+    const alt = (d._has_rel ? d.alt?.toFixed(1) : d.alt_geo?.toFixed(1)) || '—';
+    const spd = d.speed ? (d.speed*3.6).toFixed(1) : '—';
+    const hdg = d.heading || '—';
+    const rssi = d.rssi !== undefined ? d.rssi : '—';
+    if(d.rssi !== undefined && d.rssi > maxRssi) maxRssi = d.rssi;
+    totalTracks += (d.history ? d.history.length : 0);
+    const firstSeen = d.history && d.history.length ? new Date(d.history[0].t).toLocaleString() : '—';
+    const lastSeen = d.history && d.history.length ? new Date(d.history[d.history.length-1].t).toLocaleString() : '—';
+    const brand = bi.brand || '未知';
+    const model = bi.model || '—';
+    const uaType = uaTypeCN(d.ua_type);
+    const detect = d.is_dji ? 'DJI DroneID协议解析' : '标准RID侦测';
+    const opLoc = d.op_lat ? `${d.op_lat.toFixed(6)}, ${d.op_lon.toFixed(6)}` : '未上报';
+
+    rows += `<tr>
+      <td style="border:1px solid #999;padding:4px 8px">${i+1}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${d.sn||'—'}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${brand}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${model}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${uaType}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${lat}, ${lon}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${alt}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${spd}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${hdg}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${opLoc}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${rssi}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${detect}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${firstSeen}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${lastSeen}</td>
+    </tr>`;
+  });
+
+  // 告警记录
+  if(typeof alertHistory !== 'undefined' && alertHistory.length > 0) {
+    alertHistory.forEach((a, i) => {
+      alertRows += `<tr>
+        <td style="border:1px solid #999;padding:4px 8px">${i+1}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${new Date(a.time).toLocaleString()}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.zone||'—'}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.level||'—'}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.sn||'—'}</td>
+      </tr>`;
+    });
+  }
+
+  const gpsTxt = (typeof gpsData !== 'undefined' && gpsData.lat) ?
+    `${gpsData.lat.toFixed(6)}, ${gpsData.lon.toFixed(6)}` : '未定位';
+  const fwVer = document.getElementById('firmwareVer')?.textContent || '—';
+
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>RID侦测报告</title>
+<style>body{font-family:"宋体",SimSun,serif;font-size:14px} table{border-collapse:collapse;width:100%} th{background:#f0f0f0;border:1px solid #999;padding:6px 8px;font-weight:bold} .title{text-align:center;font-size:22px;font-weight:bold;margin:20px 0} .subtitle{text-align:center;font-size:16px;margin-bottom:30px} .info-table{margin:10px 0 20px} .info-table td{border:1px solid #999;padding:6px 10px} .section{font-size:16px;font-weight:bold;margin:20px 0 10px;border-bottom:2px solid #333;padding-bottom:4px} .footer{margin-top:40px;font-size:12px;color:#666}</style>
+</head><body>
+<div class="title">无人机 Remote ID 侦测报告</div>
+<div class="subtitle">RID Detection Report</div>
+
+<table class="info-table">
+<tr><td style="border:1px solid #999;padding:6px 10px"><b>报告编号</b></td><td style="border:1px solid #999;padding:6px 10px">RID-${serialNo}</td>
+    <td style="border:1px solid #999;padding:6px 10px"><b>生成时间</b></td><td style="border:1px solid #999;padding:6px 10px">${ts}</td></tr>
+<tr><td style="border:1px solid #999;padding:6px 10px"><b>侦测设备</b></td><td style="border:1px solid #999;padding:6px 10px">ESP32-C5 RID Scanner (T-Display-C5)</td>
+    <td style="border:1px solid #999;padding:6px 10px"><b>固件版本</b></td><td style="border:1px solid #999;padding:6px 10px">${fwVer}</td></tr>
+<tr><td style="border:1px solid #999;padding:6px 10px"><b>侦测位置</b></td><td style="border:1px solid #999;padding:6px 10px">${gpsTxt}</td>
+    <td style="border:1px solid #999;padding:6px 10px"><b>发现目标数</b></td><td style="border:1px solid #999;padding:6px 10px">${ids.length}</td></tr>
+</table>
+
+<div class="section">一、侦测目标明细</div>
+<table>
+<tr><th>序号</th><th>SN/序列号</th><th>品牌</th><th>型号</th><th>类型</th><th>坐标(WGS-84)</th><th>高度(m)</th><th>速度(km/h)</th><th>航向(°)</th><th>飞手位置</th><th>RSSI(dBm)</th><th>发现方式</th><th>首次发现</th><th>最后更新</th></tr>
+${rows || '<tr><td colspan="14" style="border:1px solid #999;padding:20px;text-align:center;color:#999">本次未侦测到无人机目标</td></tr>'}
+</table>
+
+<div class="section">二、围栏告警记录</div>
+${alertRows ? `<table><tr><th>序号</th><th>时间</th><th>区域</th><th>告警等级</th><th>目标SN</th></tr>${alertRows}</table>` : '<p style="color:#666">本次无围栏告警记录。</p>'}
+
+<div class="section">三、统计摘要</div>
+<table class="info-table">
+<tr><td style="border:1px solid #999;padding:6px 10px">侦测目标总数</td><td style="border:1px solid #999;padding:6px 10px">${ids.length} 架</td>
+    <td style="border:1px solid #999;padding:6px 10px">累计轨迹点数</td><td style="border:1px solid #999;padding:6px 10px">${totalTracks} 个</td></tr>
+<tr><td style="border:1px solid #999;padding:6px 10px">最强信号RSSI</td><td style="border:1px solid #999;padding:6px 10px">${maxRssi > -200 ? maxRssi+' dBm' : '—'}</td>
+    <td style="border:1px solid #999;padding:6px 10px">围栏告警数</td><td style="border:1px solid #999;padding:6px 10px">${(typeof alertHistory!=='undefined')?alertHistory.length:0} 次</td></tr>
+</table>
+
+<div class="footer">
+<p>本报告由 ESP32-C5 RID 手持侦测设备自动生成，数据来源于无人机广播的 Remote ID 信号（ASTM F3411 / GB42590-2023 / GB46750-2025 / DJI DroneID）。</p>
+<p>坐标系统：WGS-84。时间：北京时间 (UTC+8)。</p>
+<p style="margin-top:30px">侦测人员签字：________________　　　审核人签字：________________</p>
+<p style="margin-top:10px">单位：大连市公安局　　　日期：______年____月____日</p>
+</div>
+</body></html>`;
+
+  const blob = new Blob(['\ufeff'+html], {type:'application/msword'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `RID侦测报告_${serialNo}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
+  addLog('success', `[导出] 已生成执法报告（${ids.length}个目标）`);
+}
+
 function exportCSV() {
   const ids = Object.keys(droneData);
   if(ids.length === 0) { alert('暂无侦测数据可导出'); return; }
