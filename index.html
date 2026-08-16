@@ -1147,8 +1147,8 @@ function onBleData(e){
   for(const line of lines){
     let t=line.trim();
     if(!t)continue;
-    // 统一剥离 DATA: 前缀（固件 v2.2.0+ 所有数据行带此前缀）
-    if(t.startsWith('DATA:')) t=t.substring(5).trim();
+    // 统一剥离所有 DATA: 前缀（固件每个 DAT_PRINTF 片段都带，一行内可能多个）
+    if(t.includes('DATA:')) t=t.split('DATA:').join('').trim();
     if(!t)continue;
     addLog('success',`[接收] ${t.length>80?t.substring(0,77)+'...':t}`);
     parseResp(t);
@@ -1326,8 +1326,10 @@ function feedUsbText(text){
     const line=_serialBuffer.slice(0,nlIdx).replace(/\r$/,'').trim();
     _serialBuffer=_serialBuffer.slice(nlIdx+1);
     if(!line) continue;
-    if(line.startsWith('DATA:')){
-      const payload=line.substring(5).trim();
+    if(line.includes('DATA:')){
+      // 固件每个 DAT_PRINTF 都加 DATA: 前缀，一个 JSON 由多个片段拼成，
+      // 一行内可能出现多个 DATA:，全部移除后才是完整 JSON
+      const payload=line.split('DATA:').join('').trim();
       if(payload){
         addLog('success',`[USB] ${payload.length>80?payload.substring(0,77)+'...':payload}`);
         parseResp(payload);
