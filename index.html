@@ -1458,9 +1458,11 @@ function parseResp(text){
         }
         return;
       }
-      // uav_status：紧凑格式（顶层 lat/lon，非 location.latitude），同样更新位置
-      if(msg.evt === 'uav_status' && msg.lat !== undefined && msg.lon !== undefined){
-        const id = (msg.basic_id && msg.basic_id.uas_id) ? msg.basic_id.uas_id : (msg.id || ('UAV_'+(msg.ts||'')));
+      // uav_status / uav_discovery：紧凑格式（顶层 lat/lon，非 location.latitude）
+      if((msg.evt === 'uav_status' || msg.evt === 'uav_discovery') && msg.lat !== undefined && msg.lon !== undefined){
+        // ID：有 SN 用 SN；无 SN 用 MAC 做临时 ID
+        const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
+        const id = hasSN ? msg.basic_id.uas_id : (msg.mac ? ('MAC_'+msg.mac) : (msg.id || ('UAV_'+(msg.ts||''))));
         const relAlt = (msg.height !== undefined && msg.height !== null) ? msg.height : null;
         const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (msg.alt_baro || msg.alt_geo || 0);
         const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
@@ -1475,11 +1477,16 @@ function parseResp(text){
           droneData[id].height_ref = msg.height_ref || '';
           droneData[id]._rel_alt = relAlt;
           droneData[id]._has_rel = (relAlt !== null && relAlt !== 0);
+          // 记录 MAC 关联（用于 uav_timeout 合并判断）
+          if(msg.mac){
+            if(!droneData[id]._macs) droneData[id]._macs = {};
+            droneData[id]._macs[msg.mac] = Date.now();
+          }
         }
         updateTargetList(id);
         return;
       }
-      if((msg.evt === 'uav_update' || msg.evt === 'uav_discovery') && msg.location){
+      if(msg.evt === 'uav_update' && msg.location){
         const loc = msg.location;
         // 有 SN 用 SN 做 ID；无 SN 用 MAC 做临时 ID，等收到 SN 后合并
         const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
