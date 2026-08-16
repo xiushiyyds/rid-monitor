@@ -1080,7 +1080,7 @@ async function toggleConnect(){
     await txChar.startNotifications();
     isConnected=true; updateConnectionUI(true);
     addLog('success',`[BLE] 已连接: ${bleDevice.name}`);
-    document.getElementById('deviceName').textContent=bleDevice.name||'RID-Scanner';
+    {const _dn=document.getElementById('deviceName');if(_dn)_dn.textContent=bleDevice.name||'RID-Scanner';}
     // ★ 连接板子后：清空残留目标，准备接收真实侦测数据
     clearAllDrones();
     if(map && centerMarker) { centerMarker.hide(); } // 隐藏默认位置，等板子GPS
@@ -1351,16 +1351,19 @@ function feedUsbText(text){
 function onUsbConnected(name){
   isConnected=true; isPaired=true;
   updateConnectionUI(true);
-  document.getElementById('deviceName').textContent=name;
-  document.getElementById('rssiValue').textContent='USB';
+  // v2.2.9 已移除蓝牙卡片，deviceName/rssiValue 元素不再存在，做空值防护
+  const dn=document.getElementById('deviceName'); if(dn) dn.textContent=name;
+  const rv=document.getElementById('rssiValue'); if(rv) rv.textContent='USB';
   clearAllDrones && clearAllDrones();
   if(map && centerMarker) centerMarker.hide();
   startUptime();
   const btn=document.getElementById('serialBtn');
-  btn.textContent='🔌 断开 USB';
-  btn.style.background='var(--bg-input)';
-  btn.style.color='var(--red)';
-  btn.style.border='1px solid rgba(245,108,108,0.3)';
+  if(btn){
+    btn.textContent='🔌 断开 USB';
+    btn.style.background='var(--bg-input)';
+    btn.style.color='var(--red)';
+    btn.style.border='1px solid rgba(245,108,108,0.3)';
+  }
 }
 
 async function usbDisconnect(){
