@@ -1126,7 +1126,7 @@ function onDisconnected(){
 }
 function updateConnectionUI(c){
   const b=document.getElementById('statusBadge'),btn=document.getElementById('connectBtn');
-  if(c){b.textContent='已连接(待配对)';b.className='badge connected';btn.textContent='🔌 断开连接';btn.className='btn-connect disconnect';}
+  if(c){b.textContent=isPaired?'已连接(已配对)':'已连接(待配对)';b.className='badge connected';btn.textContent='🔌 断开连接';btn.className='btn-connect disconnect';}
   else{b.textContent='未连接';b.className='badge';btn.textContent='📡 连接 RID-Scanner';btn.className='btn-connect';document.getElementById('deviceName').textContent='--';document.getElementById('rssiValue').textContent='--';isPaired=false;}
 }
 function sendCmd(cmd){
@@ -1412,14 +1412,6 @@ function parseResp(text){
       return;
     }
     try {
-      // v2.2.4 诊断：记录每条 UAV 消息的关键字段
-      if(msg.evt && msg.evt.startsWith('uav_')){
-        const hasLoc = (msg.lat!==undefined && msg.lon!==undefined);
-        const hasLocObj = !!msg.location;
-        const hasSN = msg.basic_id && msg.basic_id.uas_id;
-        const hasMAC = !!msg.mac;
-        addLog('info',`[解析] evt=${msg.evt} lat=${msg.lat??'-'} lon=${msg.lon??'-'} locObj=${hasLocObj?'Y':'N'} sn=${hasSN?'Y':'N'} mac=${hasMAC?'Y':'N'}`);
-      }
       // 启动横幅：解析固件版本、信道、最大目标数等
       if(msg.evt === 'startup'){
         if(msg.version) document.getElementById('firmwareVer').textContent=msg.version;
@@ -1476,30 +1468,44 @@ function parseResp(text){
         return;
       }
       // uav_status / uav_discovery：紧凑格式（顶层 lat/lon，非 location.latitude）
-      if((msg.evt === 'uav_status' || msg.evt === 'uav_discovery') && msg.lat !== undefined && msg.lon !== undefined){
+      // v2.2.5: 即使没有有效坐标也创建目标（BLE 扫描可能先收到 Basic ID 后收到 Location）
+      if(msg.evt === 'uav_status' || msg.evt === 'uav_discovery'){
+        const hasLat = (msg.lat !== undefined && msg.lat !== null);
+        const hasLon = (msg.lon !== undefined && msg.lon !== null);
         // ID：有 SN 用 SN；无 SN 用 MAC 做临时 ID
         const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
         const id = hasSN ? msg.basic_id.uas_id : (msg.mac ? ('MAC_'+msg.mac) : (msg.id || ('UAV_'+(msg.ts||''))));
-        const relAlt = (msg.height !== undefined && msg.height !== null) ? msg.height : null;
-        const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (msg.alt_baro || msg.alt_geo || 0);
-        const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
-        const opLon = (msg.system && msg.system.operator_longitude) ? msg.system.operator_longitude : null;
-        const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
-        updateDroneOnMap(id, msg.lat, msg.lon, alt,
-          (msg.speed_h||0).toFixed(1), (msg.direction||0).toFixed(0),
-          id, opLat, opLon, uaType);
-        if(droneData[id]){
-          droneData[id].alt_baro = msg.alt_baro || 0;
-          droneData[id].alt_geo = msg.alt_geo || 0;
-          droneData[id].height_ref = msg.height_ref || '';
-          droneData[id]._rel_alt = relAlt;
-          droneData[id]._has_rel = (relAlt !== null && relAlt !== 0);
-          // 记录 MAC 关联（用于 uav_timeout 合并判断）
-          if(msg.mac){
-            if(!droneData[id]._macs) droneData[id]._macs = {};
-            droneData[id]._macs[msg.mac] = Date.now();
+        if(!droneData[id]) droneData[id] = { history: [], _macs: {} };
+        // 基本信息
+        if(hasSN) droneData[id].sn = msg.basic_id.uas_id;
+        if(msg.basic_id && msg.basic_id.ua_type) droneData[id].ua_type = msg.basic_id.ua_type;
+        if(msg.mac){ droneData[id]._macs[msg.mac] = Date.now(); droneData[id]._lastMAC = msg.mac; }
+        if(msg.rssi !== undefined) droneData[id].rssi = msg.rssi;
+        if(msg.transport) droneData[id].transport = msg.transport;
+        if(msg.protocol) droneData[id].protocol = msg.protocol;
+        droneData[id]._lastSeen = Date.now();
+        // 只有有有效坐标时才更新地图
+        if(hasLat && hasLon && (msg.lat !== 0 || msg.lon !== 0)){
+          const relAlt = (msg.height !== undefined && msg.height !== null) ? msg.height : null;
+          const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (msg.alt_baro || msg.alt_geo || 0);
+          const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
+          const opLon = (msg.system && msg.system.operator_longitude) ? msg.system.operator_longitude : null;
+          const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
+          updateDroneOnMap(id, msg.lat, msg.lon, alt,
+            (msg.speed_h||0).toFixed(1), (msg.direction||0).toFixed(0),
+            id, opLat, opLon, uaType);
+          if(droneData[id]){
+            droneData[id].alt_baro = msg.alt_baro || 0;
+            droneData[id].alt_geo = msg.alt_geo || 0;
+            droneData[id].height_ref = msg.height_ref || '';
+            droneData[id]._rel_alt = relAlt;
+            droneData[id]._has_rel = (relAlt !== null && relAlt !== 0);
           }
+        } else {
+          // 无有效坐标，只更新列表
+          droneData[id]._noLoc = true;
         }
+        document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
         updateTargetList(id);
         return;
       }
@@ -1672,8 +1678,9 @@ function parseResp(text){
 
 // ============ 目标列表渲染 ============
 function updateTargetList(id){
-  const count=Object.keys(droneMarkers).length;
+  const count=Object.keys(droneData).length;
   document.getElementById('targetListCount').textContent=count;
+  document.getElementById('activeTargets').textContent=count;
   if(count === 0){
     if(_lastTargetCount !== 0){
       document.getElementById('targetListContainer').innerHTML='<div class="target-item" style="color:var(--text-secondary);justify-content:center">正在扫描空域...</div>';
@@ -1681,28 +1688,37 @@ function updateTargetList(id){
     }
     return;
   }
-  // 目标数量没变则跳过重建DOM，减少闪烁
-  if(count===_lastTargetCount) return;
+  // 目标数量没变且非强制刷新则跳过重建DOM，减少闪烁
+  if(count===_lastTargetCount && !id) return;
   _lastTargetCount=count;
   let html='';
-  Object.keys(droneMarkers).slice(0,30).forEach(did=>{
+  Object.keys(droneData).slice(0,30).forEach(did=>{
     const d=droneData[did];
-    if(d){
-      const snShort=d.sn.length>16?d.sn.substring(0,14)+'..':d.sn;
-      const bi=lookupSN(d.sn);
-      const isDjiProto=d.is_dji===true;
-      const brandLabel=isDjiProto?(d.dji_model||'DJI'):(bi.model?bi.brand+' '+bi.model:bi.brand);
-      const brandCls=isDjiProto?'brand-dji':(bi.cls||'');
-      const srcTag=isDjiProto?'<span class="source-tag source-dji">协议解析</span>':'<span class="source-tag source-rid">RID侦测</span>';
-      html+=`<div class="target-item" onclick="showDetail('${did}')">
-        <div class="target-dot"></div>
-        <span class="target-id">${did}</span>
-        <span class="brand-tag ${brandCls}" style="margin:0 6px;font-size:9px">${brandLabel}</span>
-        ${srcTag}
-        <span class="target-sn">${snShort}</span>
-        <span class="target-pos">${d.gcj_lat.toFixed(4)},${d.gcj_lon.toFixed(4)} ${d._has_rel?'R:':''}${Number(d.alt).toFixed(0)}m</span>
-      </div>`;
+    if(!d) return;
+    const sn = d.sn || did;
+    const snShort=sn.length>16?sn.substring(0,14)+'..':sn;
+    const bi=lookupSN(sn);
+    const isDjiProto=d.is_dji===true;
+    const brandLabel=isDjiProto?(d.dji_model||'DJI'):(bi.model?bi.brand+' '+bi.model:bi.brand);
+    const brandCls=isDjiProto?'brand-dji':(bi.cls||'');
+    const srcTag=isDjiProto?'<span class="source-tag source-dji">协议解析</span>':'<span class="source-tag source-rid">RID侦测</span>';
+    // 有坐标显示坐标，无坐标显示"定位中"
+    let posStr;
+    if(d.gcj_lat !== undefined && d.gcj_lon !== undefined && !d._noLoc){
+      const altStr = d._has_rel ? ('R:'+Number(d.alt||0).toFixed(0)+'m') : (Number(d.alt||0).toFixed(0)+'m');
+      posStr = `${d.gcj_lat.toFixed(4)},${d.gcj_lon.toFixed(4)} ${altStr}`;
+    } else {
+      posStr = '<span style="color:var(--text-secondary)">📍 定位中...</span>';
     }
+    const rssiStr = d.rssi !== undefined ? `<span style="color:var(--text-secondary);font-size:10px;margin-left:4px">${d.rssi}dBm</span>` : '';
+    html+=`<div class="target-item" onclick="showDetail('${did}')">
+      <div class="target-dot"></div>
+      <span class="target-id">${did}</span>
+      <span class="brand-tag ${brandCls}" style="margin:0 6px;font-size:9px">${brandLabel}</span>
+      ${srcTag}
+      <span class="target-sn">${snShort}</span>
+      <span class="target-pos">${posStr}${rssiStr}</span>
+    </div>`;
   });
   if(count>30) html+=`<div class="target-item" style="color:var(--text-secondary);justify-content:center">... 还有 ${count-30} 个目标</div>`;
   document.getElementById('targetListContainer').innerHTML=html;
