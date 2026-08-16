@@ -174,7 +174,8 @@ body {
 .d-field.full { grid-column: 1 / -1; }
 .d-field.highlight { background: rgba(64,158,255,0.06); border: 1px solid rgba(64,158,255,0.15); }
 .alert-badge{display:inline-block;min-width:16px;height:16px;line-height:16px;padding:0 4px;margin-left:4px;background:#f56c6c;color:#fff;border-radius:8px;font-size:10px;font-weight:700;text-align:center;vertical-align:middle}
-.alert-item{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);align-items:flex-start}
+.alert-item{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);align-items:flex-start;cursor:pointer;transition:background 0.15s}
+.alert-item:hover{background:rgba(64,158,255,0.06)}
 .alert-item:last-child{border-bottom:none}
 .alert-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
 .alert-icon.new{background:rgba(103,194,58,0.15);color:#67c23a}
@@ -1473,7 +1474,8 @@ function _renderAlertHistory(){
     return;
   }
   // 倒序展示
-  const html = _alertHistory.slice().reverse().map(a => {
+  const html = _alertHistory.slice().reverse().map((a, idx) => {
+    const realIdx = _alertHistory.length - 1 - idx;
     let icon, title, meta;
     if(a.type === 'new'){
       icon = '<div class="alert-icon new">🛩️</div>';
@@ -1492,9 +1494,60 @@ function _renderAlertHistory(){
       title = `目标消失：${a.sn || '未知'}`;
       meta = `<span>最后RSSI: ${a.rssi !== null ? a.rssi + 'dBm' : '?'}</span>`;
     }
-    return `<div class="alert-item">${icon}<div class="alert-body"><div class="alert-title">${title}</div><div class="alert-meta">${meta}</div></div><div class="alert-time">${_fmtTime(a.t)}</div></div>`;
+    return `<div class="alert-item" onclick="showAlertDetail(${realIdx})">${icon}<div class="alert-body"><div class="alert-title">${title}</div><div class="alert-meta">${meta}</div></div><div class="alert-time">${_fmtTime(a.t)}</div></div>`;
   }).join('');
   box.innerHTML = html;
+}
+
+// v2.2.15: 预警条目详情
+function showAlertDetail(idx){
+  const a = _alertHistory[idx];
+  if(!a) return;
+  const titleMap = {new:'🛩️ 发现新目标', geo:'⚠️ 围栏告警', timeout:'⏱️ 目标信号消失'};
+  const colorMap = {new:'#67c23a', geo:'#f56c6c', timeout:'#909399'};
+  // 查找在线目标
+  let activeId = null;
+  if(a.sn){
+    for(const id in droneData){
+      const d = droneData[id];
+      if(d && (d.sn === a.sn || id === a.sn)){
+        const last = d._lastSeen || 0;
+        if(Date.now() - last < 30000){ activeId = id; break; }
+      }
+    }
+  }
+  const p = (label, val, cls) => val !== undefined && val !== null && val !== ''
+    ? `<div class="d-field ${cls||''}"><div class="df-label">${label}</div><div class="df-value">${val}</div></div>` : '';
+  const fullTime = (() => { const d=new Date(a.t); const pad=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; })();
+  let coordLine = '';
+  if(a.lat !== null && a.lat !== undefined && a.lon !== null && a.lon !== undefined){
+    const lat = Number(a.lat).toFixed(6), lon = Number(a.lon).toFixed(6);
+    coordLine = `<div class="d-field full"><div class="df-label">WGS-84 坐标</div><div class="df-value">${lat}, ${lon}
+      <a href="https://uri.amap.com/marker?position=${Number(a.lon).toFixed(6)},${Number(a.lat).toFixed(6)}&coordinate=wgs84&callnative=1" target="_blank" style="font-size:11px;color:#409eff;margin-left:8px">📍 在高德地图中查看</a></div></div>`;
+  }
+  const html = `<div class="detail-section">
+      <div class="detail-section-title"><span class="icon" style="color:${colorMap[a.type]}">●</span> <span style="color:${colorMap[a.type]};font-weight:700">${titleMap[a.type]||'预警'}</span></div>
+      <div class="d-grid">
+        ${p('发生时间', fullTime, 'highlight')}
+        ${p('序列号 SN / UAS ID', a.sn || '--', 'highlight')}
+        ${a.type==='new' ? p('识别型号', a.model || '未知型号') : ''}
+        ${a.type==='geo' ? p('告警区域', a.zone || '--') : ''}
+        ${a.type==='geo' ? p('告警等级', a.level || '--') : ''}
+        ${p('信号强度 RSSI', (a.rssi!==null&&a.rssi!==undefined)?a.rssi+' dBm':'--')}
+        ${(a.alt!==null&&a.alt!==undefined) ? p('飞行高度', Number(a.alt).toFixed(1)+' m') : ''}
+        ${coordLine}
+        <div class="d-field full" style="background:rgba(64,158,255,0.04);border-color:rgba(64,158,255,0.15)">
+          <div class="df-label" style="font-size:10px;color:#909399">ℹ️ 说明</div>
+          <div class="df-value" style="font-size:11px;color:#909399;line-height:1.5">此条记录为设备侦测到的历史事件。${a.type==='new'?'"发现新目标"为首次接收到该无人机RID信号的时刻。':a.type==='geo'?'围栏告警基于固件预置的大连地区12个重点区域判定。':'"信号消失"为30秒未收到该目标信号后判定离线。'}</div>
+        </div>
+        ${activeId ? `<div class="d-field full" style="text-align:center"><button onclick="closeDetail();showDetail('${activeId}')" style="background:#409eff;color:white;border:none;border-radius:6px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer">📋 查看该目标实时详情</button></div>` : ''}
+      </div>
+    </div>`;
+  document.getElementById('detailTitle').textContent = titleMap[a.type] || '预警详情';
+  document.getElementById('detailSubtitle').textContent = a.sn ? `SN: ${a.sn}` : fullTime;
+  document.getElementById('detailBody').innerHTML = html;
+  document.getElementById('detailOverlay').classList.add('show');
 }
 function clearAlertHistory(){
   if(!confirm('确定清空所有历史预警记录？')) return;
