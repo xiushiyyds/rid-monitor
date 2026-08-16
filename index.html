@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>RID 侦测监控 v2.3.1</title>
+<title>RID 侦测监控 v2.3.2</title>
 <script src="https://webapi.amap.com/loader.js"></script>
 <style>
 :root {
@@ -2860,12 +2860,14 @@ function initRadar(){
   if(!_radarCanvas) return;
   _radarCtx = _radarCanvas.getContext('2d');
   const wrap = document.getElementById('radarWrap');
-  const size = Math.min(wrap ? wrap.clientWidth - 8 : 320, 280);
+  // v2.3.2: tab 隐藏时 clientWidth=0，用合理默认值，杜绝负尺寸导致椭圆
+  let size = 280;
+  if(wrap && wrap.clientWidth > 40) size = Math.min(wrap.clientWidth - 16, 300);
   _radarDpr = window.devicePixelRatio || 1;
   _radarCanvas.style.width = size + 'px';
   _radarCanvas.style.height = size + 'px';
-  _radarCanvas.width = size * _radarDpr;
-  _radarCanvas.height = size * _radarDpr;
+  _radarCanvas.width = Math.round(size * _radarDpr);
+  _radarCanvas.height = Math.round(size * _radarDpr);
   _radarCtx.setTransform(_radarDpr, 0, 0, _radarDpr, 0, 0);
   // 事件
   if(!_radarCanvas._bound){
@@ -2889,21 +2891,22 @@ function initRadar(){
 }
 
 function drawRadar(){
-  if(!_radarCanvas) initRadar();
+  if(!_radarCanvas || !_radarCtx) initRadar();
   if(!_radarCanvas || !_radarCtx) return;
   const wrap = document.getElementById('radarWrap');
-  if(wrap){
-    const wantSize = Math.min(wrap.clientWidth - 16, 300);
-    if(Math.abs(wantSize - _radarCanvas.clientWidth) > 4){
-      _radarCanvas.style.width = wantSize + 'px';
-      _radarCanvas.style.height = wantSize + 'px';
-      _radarCanvas.width = wantSize * _radarDpr;
-      _radarCanvas.height = wantSize * _radarDpr;
-      _radarCtx.setTransform(_radarDpr, 0, 0, _radarDpr, 0, 0);
-    }
+  let wantSize = 280;
+  if(wrap && wrap.clientWidth > 40) wantSize = Math.min(wrap.clientWidth - 16, 300);
+  const curSize = parseInt(_radarCanvas.style.width)||0;
+  // v2.3.2: 尺寸不对（含初次隐藏后显示）时强制重设画布
+  if(Math.abs(wantSize - curSize) > 4 || curSize < 50){
+    _radarCanvas.style.width = wantSize + 'px';
+    _radarCanvas.style.height = wantSize + 'px';
+    _radarCanvas.width = Math.round(wantSize * _radarDpr);
+    _radarCanvas.height = Math.round(wantSize * _radarDpr);
+    _radarCtx.setTransform(_radarDpr, 0, 0, _radarDpr, 0, 0);
   }
   const ctx = _radarCtx;
-  const W = parseInt(_radarCanvas.style.width)||280, H = parseInt(_radarCanvas.style.height)||280;
+  const W = wantSize, H = wantSize;
   const cx = W/2, cy = H/2;
   const R = Math.min(W,H)/2 - 14;
   ctx.clearRect(0,0,W,H);
@@ -3770,7 +3773,7 @@ function buildKML(placemarks){
   kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n';
   kml += '<Document>\n';
   kml += '  <name>RID 侦测轨迹导出</name>\n';
-  kml += '  <description>由 RID 侦测监控 v2.3.1 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
+  kml += '  <description>由 RID 侦测监控 v2.3.2 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
   kml += '  <Style id="ridLine"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>\n';
   kml += '  <Style id="ridStart"><IconStyle><color>ff00ff00</color><scale>1</scale></IconStyle></Style>\n';
   kml += '  <Style id="ridEnd"><IconStyle><color>ff0000ff</color><scale>1</scale></IconStyle></Style>\n';
