@@ -173,6 +173,17 @@ body {
 .d-field .df-value { font-size: 13px; font-weight: 600; margin-top: 1px; color: var(--text-primary); word-break: break-all; }
 .d-field.full { grid-column: 1 / -1; }
 .d-field.highlight { background: rgba(64,158,255,0.06); border: 1px solid rgba(64,158,255,0.15); }
+.alert-badge{display:inline-block;min-width:16px;height:16px;line-height:16px;padding:0 4px;margin-left:4px;background:#f56c6c;color:#fff;border-radius:8px;font-size:10px;font-weight:700;text-align:center;vertical-align:middle}
+.alert-item{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);align-items:flex-start}
+.alert-item:last-child{border-bottom:none}
+.alert-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.alert-icon.new{background:rgba(103,194,58,0.15);color:#67c23a}
+.alert-icon.geo{background:rgba(245,108,108,0.15);color:#f56c6c}
+.alert-icon.timeout{background:rgba(144,147,153,0.15);color:#909399}
+.alert-body{flex:1;min-width:0}
+.alert-title{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px}
+.alert-meta{font-size:11px;color:var(--text-secondary);display:flex;flex-wrap:wrap;gap:8px}
+.alert-time{font-size:11px;color:var(--text-secondary);white-space:nowrap}
 .d-field.warn { background: rgba(230,162,60,0.06); border: 1px solid rgba(230,162,60,0.15); }
 
 .operator-box {
@@ -293,6 +304,7 @@ body {
     <button class="tab active" onclick="switchTab('control',event)">📡 控制</button>
     <button class="tab" onclick="switchTab('status',event)">📊 状态</button>
     <button class="tab" onclick="switchTab('targets',event)">🎯 目标</button>
+    <button class="tab" onclick="switchTab('alerts',event)">🚨 预警<span id="alertBadge" class="alert-badge" style="display:none">0</span></button>
     <button class="tab" onclick="switchTab('log',event)">📋 日志</button>
   </div>
 
@@ -357,6 +369,22 @@ body {
       </h3>
       <div class="target-list" id="targetListContainer">
         <div class="target-item" style="color:var(--text-secondary);justify-content:center">等待设备连接...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 历史预警 -->
+  <div id="tab-alerts" class="tab-content">
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        🚨 历史预警 (<span id="alertHistoryCount">0</span>)
+        <span style="display:flex;gap:6px">
+          <button class="btn-export" onclick="exportAlertsCSV()">📥 导出</button>
+          <button class="btn-export" onclick="clearAlertHistory()" style="background:rgba(245,108,108,0.12);color:#f56c6c">🗑 清空</button>
+        </span>
+      </h3>
+      <div class="target-list" id="alertHistoryList" style="max-height:60vh;overflow-y:auto">
+        <div class="target-item" style="color:var(--text-secondary);justify-content:center">暂无预警记录</div>
       </div>
     </div>
   </div>
@@ -1253,7 +1281,17 @@ function onBleData(e){
 let _audioCtx = null;
 let _wakeLock = null;
 // 已告警过的目标集合，避免同一个目标反复告警
-const _alertedTargets = new Set();
+const _alertedTargets = new Map(); // id -> timestamp(ms)，用于新目标提醒去重，60s 后自动失效
+const _ALERTED_TTL = 60000; // 肩灯 BLE 广播断档后重新出现需再次提醒
+function _alertedHas(id){
+  const t=_alertedTargets.get(id);
+  if(t===undefined) return false;
+  if(Date.now()-t > _ALERTED_TTL){ _alertedTargets.delete(id); return false; }
+  return true;
+}
+function _alertedAdd(id){ _alertedTargets.set(id, Date.now()); }
+function _alertedDelete(id){ _alertedTargets.delete(id); }
+function _alertedClear(){ _alertedClear(); }
 
 function _ensureAudio(){
   if(!_audioCtx){
@@ -1308,13 +1346,142 @@ function notifyNewTarget(sn, rssi){
   const info = lookupSN(sn);
   const model = info.model ? info.brand + ' ' + info.model : (info.brand || '未知型号');
   showTempBanner(`🛩️ 发现无人机：${model}${sn ? '（' + sn.substring(0,12) + (sn.length>12?'...':'') + '）' : ''}${rssi ? ' RSSI=' + rssi : ''}`, 'success', 4000);
+  try{ addAlertHistory('new', sn, {rssi:rssi, model:model}); }catch(e){}
 }
 
 // 触发围栏告警
-function notifyGeofence(sn, zoneName, levelName){
+function notifyGeofence(sn, zoneName, levelName, extra){
   playAlertSound();
   vibrate([300, 100, 300, 100, 300]);
   showTempBanner(`⚠️ 围栏告警：${sn || '目标'} 进入【${zoneName}】(${levelName})`, 'alert', 6000);
+  try{ addAlertHistory('geo', sn, Object.assign({zone:zoneName, level_name:levelName}, extra||{})); }catch(e){}
+}
+
+// ============ v2.2.13: 历史预警 ============
+const ALERT_HISTORY_KEY = 'rid_alert_history_v1';
+const ALERT_HISTORY_MAX = 500;
+let _alertHistory = [];
+let _unreadAlerts = 0;
+function _loadAlertHistory(){
+  try{
+    const raw = localStorage.getItem(ALERT_HISTORY_KEY);
+    if(raw){
+      const arr = JSON.parse(raw);
+      if(Array.isArray(arr)){ _alertHistory = arr; return; }
+    }
+  }catch(e){}
+  _alertHistory = [];
+}
+function _saveAlertHistory(){
+  try{
+    if(_alertHistory.length > ALERT_HISTORY_MAX){
+      _alertHistory = _alertHistory.slice(-ALERT_HISTORY_MAX);
+    }
+    localStorage.setItem(ALERT_HISTORY_KEY, JSON.stringify(_alertHistory));
+  }catch(e){}
+}
+function _fmtTime(ts){
+  const d = new Date(ts);
+  const p = n => String(n).padStart(2,'0');
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function addAlertHistory(type, sn, extra){
+  if(!_alertHistory.length) _loadAlertHistory();
+  const entry = {
+    t: Date.now(),
+    type: type, // 'new' | 'geo' | 'timeout'
+    sn: sn || '',
+    rssi: extra && extra.rssi !== undefined ? extra.rssi : null,
+    zone: extra && extra.zone ? extra.zone : '',
+    level: extra && extra.level_name ? extra.level_name : '',
+    model: extra && extra.model ? extra.model : '',
+    lat: extra && extra.lat !== undefined ? extra.lat : null,
+    lon: extra && extra.lon !== undefined ? extra.lon : null,
+    alt: extra && extra.alt !== undefined ? extra.alt : null,
+  };
+  // 去重：同一 SN 同类型在 5 秒内只记录一次
+  const last = _alertHistory.length ? _alertHistory[_alertHistory.length-1] : null;
+  if(last && last.sn === entry.sn && last.type === entry.type && (entry.t - last.t) < 5000){
+    return;
+  }
+  _alertHistory.push(entry);
+  _unreadAlerts++;
+  _saveAlertHistory();
+  _renderAlertHistory();
+  _updateAlertBadge();
+}
+function _updateAlertBadge(){
+  const b = document.getElementById('alertBadge');
+  if(!b) return;
+  if(_unreadAlerts > 0){
+    b.style.display = 'inline-block';
+    b.textContent = _unreadAlerts > 99 ? '99+' : _unreadAlerts;
+  } else {
+    b.style.display = 'none';
+  }
+}
+function _renderAlertHistory(){
+  const box = document.getElementById('alertHistoryList');
+  if(!box) return;
+  document.getElementById('alertHistoryCount').textContent = _alertHistory.length;
+  if(!_alertHistory.length){
+    box.innerHTML = '<div class="target-item" style="color:var(--text-secondary);justify-content:center">暂无预警记录</div>';
+    return;
+  }
+  // 倒序展示
+  const html = _alertHistory.slice().reverse().map(a => {
+    let icon, title, meta;
+    if(a.type === 'new'){
+      icon = '<div class="alert-icon new">🛩️</div>';
+      const m = a.model || '未知型号';
+      title = `发现无人机：${m}`;
+      meta = `<span>SN: ${a.sn || '?'}</span>`;
+      if(a.rssi !== null && a.rssi !== undefined) meta += `<span>RSSI: ${a.rssi}dBm</span>`;
+    } else if(a.type === 'geo'){
+      icon = '<div class="alert-icon geo">⚠️</div>';
+      title = `围栏告警：${a.zone || '未知区域'}`;
+      meta = `<span>SN: ${a.sn || '?'}</span><span>等级: ${a.level || '?'}</span>`;
+      if(a.lat !== null && a.lon !== undefined) meta += `<span>坐标: ${Number(a.lat).toFixed(5)},${Number(a.lon).toFixed(5)}</span>`;
+      if(a.alt !== null && a.alt !== undefined) meta += `<span>高度: ${Number(a.alt).toFixed(0)}m</span>`;
+    } else {
+      icon = '<div class="alert-icon timeout">⏱️</div>';
+      title = `目标消失：${a.sn || '未知'}`;
+      meta = `<span>最后RSSI: ${a.rssi !== null ? a.rssi + 'dBm' : '?'}</span>`;
+    }
+    return `<div class="alert-item">${icon}<div class="alert-body"><div class="alert-title">${title}</div><div class="alert-meta">${meta}</div></div><div class="alert-time">${_fmtTime(a.t)}</div></div>`;
+  }).join('');
+  box.innerHTML = html;
+}
+function clearAlertHistory(){
+  if(!confirm('确定清空所有历史预警记录？')) return;
+  _alertHistory = [];
+  _unreadAlerts = 0;
+  _saveAlertHistory();
+  _renderAlertHistory();
+  _updateAlertBadge();
+  addLog('info','[预警] 历史预警已清空');
+}
+function exportAlertsCSV(){
+  if(!_alertHistory.length){ alert('暂无预警记录'); return; }
+  const rows = [['时间','类型','SN/标识','型号/区域','等级','RSSI','纬度','经度','高度']];
+  _alertHistory.forEach(a => {
+    const t = _fmtTime(a.t);
+    if(a.type === 'new'){
+      rows.push([t,'新目标',a.sn||'',a.model||'','',a.rssi??'','','','']);
+    } else if(a.type === 'geo'){
+      rows.push([t,'围栏告警',a.sn||'',a.zone||'',a.level||'',a.rssi??'',a.lat??'',a.lon??'',a.alt??'']);
+    } else {
+      rows.push([t,'信号消失',a.sn||'','','',a.rssi??'','','','']);
+    }
+  });
+  const csv = '﻿' + rows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `rid-alerts-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
 }
 
 // 顶部临时横幅（成功/告警两种样式），自动消失
@@ -1693,6 +1860,13 @@ function parseResp(text){
           }
         }
         if(removedId){
+          // v2.2.13: 信号消失前记录最后一次已知 RSSI/SN
+          try{
+            const d = droneData[removedId];
+            if(d){
+              addAlertHistory('timeout', d.sn || removedId, {rssi: d.rssi});
+            }
+          }catch(e){}
           if(droneMarkers[removedId]){
             map.remove(droneMarkers[removedId]);
             if(droneMarkers[removedId]._trailLine) map.remove(droneMarkers[removedId]._trailLine);
@@ -1701,6 +1875,8 @@ function parseResp(text){
           }
           if(operatorMarkers[removedId]){ map.remove(operatorMarkers[removedId]); delete operatorMarkers[removedId]; }
           delete droneTrails[removedId];
+          // v2.2.13: 从已提醒集合移除（使设备再出现时可再次提醒）
+          _alertedDelete(removedId);
           delete droneData[removedId];
           document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
           document.getElementById('mapTargetCount').textContent = Object.keys(droneMarkers).length;
@@ -1755,14 +1931,17 @@ function parseResp(text){
         document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
         updateTargetList(id);
         // v2.2.12: 仅在首次发现新目标时触发提醒（uav_status 是周期更新，不提醒）
-        if(_isNew && msg.evt === 'uav_discovery' && !_alertedTargets.has(id)){
-          _alertedTargets.add(id);
+        if(_isNew && msg.evt === 'uav_discovery' && !_alertedHas(id)){
+          _alertedAdd(id);
           notifyNewTarget(droneData[id].sn || id, droneData[id].rssi);
         }
         return;
       }
-      if(msg.evt === 'uav_update' && msg.location){
+      if(msg.evt === 'uav_update'){
         const loc = msg.location;
+        const hasLoc = loc && typeof loc === 'object' && loc.latitude !== undefined;
+        // v2.2.13: location:null（无GPS定位）时也要更新 _lastSeen/RSSI/基本信息，
+        // 否则30s超时会把还在广播的目标清掉，造成"列表消失后又出现"的闪烁
         // 有 SN 用 SN 做 ID；无 SN 用 MAC 做临时 ID，等收到 SN 后合并
         const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
         const sn = hasSN ? msg.basic_id.uas_id : null;
@@ -1808,22 +1987,38 @@ function parseResp(text){
           id = macId;
           if(!droneData[id]) droneData[id] = { history: [] };
         }
-        // 相对高度优先，备选气压高度，再选大地高度
-        const relAlt = (loc.height !== undefined && loc.height !== null) ? loc.height : null;
-        const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (loc.alt_baro || loc.alt_geo || 0);
-        const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
-        const opLon = (msg.system && msg.system.operator_longitude) ? msg.system.operator_longitude : null;
-        const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
-        updateDroneOnMap(id, loc.latitude, loc.longitude, alt,
-          (loc.speed_h||0).toFixed(1), (loc.direction||0).toFixed(0),
-          id, opLat, opLon, uaType);
-        // 保存完整高度信息
-        if(droneData[id]){
-          droneData[id].alt_baro = loc.alt_baro || 0;
-          droneData[id].alt_geo = loc.alt_geo || 0;
-          droneData[id].height_ref = loc.height_ref || '';
-          droneData[id]._rel_alt = relAlt;
-          droneData[id]._has_rel = (relAlt !== null && relAlt !== 0);
+        // v2.2.13: 无论是否有定位，都更新最后出现时间/RSSI/基本信息
+        droneData[id]._lastSeen = Date.now();
+        if(msg.rssi !== undefined) droneData[id].rssi = msg.rssi;
+        if(hasSN) droneData[id].sn = sn;
+        if(msg.basic_id && msg.basic_id.ua_type) droneData[id].ua_type = msg.basic_id.ua_type;
+        if(msg.transport) droneData[id].transport = msg.transport;
+        if(msg.protocol) droneData[id].protocol = msg.protocol;
+        if(msg.detect_source) droneData[id].detect_source = msg.detect_source;
+        if(!hasLoc){
+          // 无 GPS 定位（location:null），只刷新列表，不碰地图
+          droneData[id]._noLoc = true;
+          if(droneData[id].speed === undefined) droneData[id].speed = 0;
+          if(droneData[id].heading === undefined) droneData[id].heading = 0;
+          if(droneData[id].alt === undefined) droneData[id].alt = 0;
+          if(droneData[id].ua_type === undefined) droneData[id].ua_type = '未知';
+        } else {
+          // 相对高度优先，备选气压高度，再选大地高度
+          const relAlt = (loc.height !== undefined && loc.height !== null) ? loc.height : null;
+          const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (loc.alt_baro || loc.alt_geo || 0);
+          const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
+          const opLon = (msg.system && msg.system.operator_longitude) ? msg.system.operator_longitude : null;
+          const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
+          updateDroneOnMap(id, loc.latitude, loc.longitude, alt,
+            (loc.speed_h||0).toFixed(1), (loc.direction||0).toFixed(0),
+            id, opLat, opLon, uaType);
+          if(droneData[id]){
+            droneData[id].alt_baro = loc.alt_baro || 0;
+            droneData[id].alt_geo = loc.alt_geo || 0;
+            droneData[id].height_ref = loc.height_ref || '';
+            droneData[id]._rel_alt = relAlt;
+            droneData[id]._has_rel = (relAlt !== null && relAlt !== 0);
+          }
         }
         // GB 46750 数据补充
         if(msg.gb46750 && msg.gb46750.valid){
@@ -1850,10 +2045,10 @@ function parseResp(text){
           if(msg.dji.identification !== undefined) droneData[id].dji_id = msg.dji.identification;
         }
         // v2.2.12: 新目标提醒（SN 合并后才真正完整，此时提醒一次）
-        const _justCreated = (sn && !_alertedTargets.has(sn)) || (!sn && !_alertedTargets.has(macId));
+        const _justCreated = (sn ? !_alertedHas(sn) : !_alertedHas(macId));
         if(_justCreated && !droneData[id]._notified){
           droneData[id]._notified = true;
-          _alertedTargets.add(id);
+          _alertedAdd(id);
           notifyNewTarget(droneData[id].sn || id, msg.rssi);
         }
         // v2.2.12: 围栏告警（解析 JSON 结构化字段，不依赖 ALERT: 文本）
@@ -1866,7 +2061,12 @@ function parseResp(text){
           if(prevZone !== gf.zone || gf.level > prevLevel){
             droneData[id]._lastAlertZone = gf.zone;
             droneData[id]._lastAlertLevel = gf.level;
-            notifyGeofence(droneData[id].sn || id, gf.zone, gf.level_name || ('level '+gf.level));
+            notifyGeofence(droneData[id].sn || id, gf.zone, gf.level_name || ('level '+gf.level), {
+              rssi: msg.rssi,
+              lat: droneData[id].wgs_lat,
+              lon: droneData[id].wgs_lon,
+              alt: droneData[id].alt
+            });
           }
         } else if(droneData[id]){
           // 飞出围栏，清除标记
@@ -2011,7 +2211,13 @@ function updateTargetList(id){
 }
 
 // ============ 标签页/计时/日志 ============
-function switchTab(n,e){document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));(e||window.event).target.closest('.tab').classList.add('active');document.getElementById('tab-'+n).classList.add('active')}
+function switchTab(n,e){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  (e||window.event).target.closest('.tab').classList.add('active');
+  document.getElementById('tab-'+n).classList.add('active');
+  if(n==='alerts'){ _unreadAlerts=0; _updateAlertBadge(); }
+}
 function startUptime(){uptimeSeconds=0;clearInterval(uptimeTimer);uptimeTimer=setInterval(()=>{uptimeSeconds++;const h=String(Math.floor(uptimeSeconds/3600)).padStart(2,'0'),m=String(Math.floor((uptimeSeconds%3600)/60)).padStart(2,'0'),s=String(uptimeSeconds%60).padStart(2,'0');document.getElementById('uptime').textContent=`${h}:${m}:${s}`},1000)}
 function stopUptime(){clearInterval(uptimeTimer);document.getElementById('uptime').textContent='00:00:00'}
 function addLog(type,msg){
@@ -2138,6 +2344,7 @@ function startStaleCleanTimer(){
     Object.keys(droneData).forEach(id=>{
       if(droneData[id]._lastSeen && now - droneData[id]._lastSeen > 30000){
         // 30秒未更新，视为信号丢失
+        try{ addAlertHistory('timeout', droneData[id].sn || id, {rssi: droneData[id].rssi}); }catch(e){}
         if(droneMarkers[id]){
           map.remove(droneMarkers[id]);
           if(droneMarkers[id]._trailLine) map.remove(droneMarkers[id]._trailLine);
@@ -2146,6 +2353,7 @@ function startStaleCleanTimer(){
         }
         if(operatorMarkers[id]){ map.remove(operatorMarkers[id]); delete operatorMarkers[id]; }
         delete droneTrails[id];
+        _alertedDelete(id);
         delete droneData[id];
         removed++;
       }
@@ -2162,6 +2370,13 @@ function startStaleCleanTimer(){
 window.addEventListener('load',()=>{
   initMap();startStaleCleanTimer();
   try{const v=localStorage.getItem('rid_fw_ver');if(v)document.getElementById('firmwareVer').textContent=v;}catch(e){}
+  try{
+    _loadAlertHistory();
+    _renderAlertHistory();
+    // 历史已有记录时不把旧记录当未读，只计本次会话新增
+    _unreadAlerts = 0;
+    _updateAlertBadge();
+  }catch(e){}
 });
 </script>
 </body>
