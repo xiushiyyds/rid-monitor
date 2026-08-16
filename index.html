@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>RID 侦测监控 v2.3.2</title>
+<title>RID 侦测监控 v2.3.3</title>
 <script src="https://webapi.amap.com/loader.js"></script>
 <style>
 :root {
@@ -2277,9 +2277,9 @@ function parseResp(text){
             }
           }catch(e){}
           removeTarget(removedId);
-          document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
-          document.getElementById('mapTargetCount').textContent = Object.keys(droneMarkers).length;
-          document.getElementById('targetListCount').textContent = Object.keys(droneData).length;
+          // v2.3.3: 必须强制刷新列表，否则已删除目标还残留在UI
+          _lastTargetCount = -1;
+          updateTargetList('');
         }
         return;
       }
@@ -3525,8 +3525,10 @@ function openRssiReplay(id){
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
         drawRssiReplay(cv, rec.rssiHist, rec.avgRssi, rec.lastRssi);
         // 播放扫描游标动画：一根白色竖线从左走到右
-        _rssiPlayIdx = 0;
+        _rssiPlayIdx = -1;  // v2.3.3: -1 确保第一帧触发重绘
         _rssiPlayHist = rec.rssiHist;
+        _rssiPaused = false;
+        _rssiPlayPauseAccum = 0;
         const tMin=rec.rssiHist[0].t, tMax=rec.rssiHist[rec.rssiHist.length-1].t;
         _rssiPlayDur = Math.max(tMax-tMin, 4000); // 至少4秒
         _rssiPlayStart = performance.now();
@@ -3535,7 +3537,7 @@ function openRssiReplay(id){
         const playRow = document.getElementById('trackPlayRow');
         if(playRow) playRow.style.display='flex';
         const label = document.getElementById('trkTimeLabel');
-        if(label) label.textContent = '扫描中...';
+        if(label) label.textContent = '00:00 · 1/'+rec.rssiHist.length;
         cancelAnimationFrame(_rssiPlayRaf);
         _rssiPlayRaf = requestAnimationFrame(_rssiPlayTick);
       }));
@@ -3556,31 +3558,37 @@ function openRssiReplay(id){
 // v2.3.2: RSSI 回放的扫描动画状态
 let _rssiPlayRaf=0, _rssiPlayIdx=0, _rssiPlayHist=null, _rssiPlayStart=0, _rssiPlayDur=0, _rssiPaused=false;
 function _rssiPlayTick(now){
-  if(!_rssiPlayHist || _rssiPaused){ _rssiPlayRaf=requestAnimationFrame(_rssiPlayTick); return; }
-  const elapsed = now - _rssiPlayStart;
+  if(!_rssiPlayHist){ return; }
+  if(_rssiPaused){ _rssiPlayRaf=requestAnimationFrame(_rssiPlayTick); return; }
+  // v2.3.3: 每次重新计算经过时间，_rssiPlayStart 在播放/继续时校准
+  const elapsed = (now - _rssiPlayStart) + (_rssiPlayPauseAccum||0);
   const ratio = Math.min(elapsed/_rssiPlayDur, 1);
   const idx = Math.round(ratio*(_rssiPlayHist.length-1));
   if(idx !== _rssiPlayIdx){
     _rssiPlayIdx = idx;
     const cv = document.getElementById('rssiReplayCanvas');
     if(cv){
-      drawRssiReplay(cv, _rssiPlayHist,
-        _rssiPlayHist.reduce((s,p)=>s+p.r,0)/_rssiPlayHist.length,
-        _rssiPlayHist[_rssiPlayHist.length-1].r);
+      const avg = _rssiPlayHist.reduce((s,p)=>s+p.r,0)/_rssiPlayHist.length;
+      drawRssiReplay(cv, _rssiPlayHist, avg, _rssiPlayHist[_rssiPlayHist.length-1].r);
       // 画扫描游标
-      const dpr=window.devicePixelRatio||1;
-      const ctx=cv.getContext('2d'); const W=cv.clientWidth||320, H=260;
+      const W=cv.clientWidth||320, H=260;
       const pad={l:36,r:12,t:16,b:24}, w=W-pad.l-pad.r;
       const tMin=_rssiPlayHist[0].t, tMax=_rssiPlayHist[_rssiPlayHist.length-1].t;
       const xOf=t=>pad.l+(tMax===tMin?w/2:w*(t-tMin)/(tMax-tMin));
-      const x=xOf(_rssiPlayHist[idx].t);
-      // 游标处的实际 RSSI 值
       const p=_rssiPlayHist[idx];
+      const x=xOf(p.t);
+      // y 值：复制 drawRssiReplay 内的算法
+      let dMin=Infinity,dMax=-Infinity;
+      _rssiPlayHist.forEach(pp=>{ if(pp.r<dMin)dMin=pp.r; if(pp.r>dMax)dMax=pp.r; });
+      let yMin=Math.min(-110,Math.floor((dMin-5)/20)*20), yMax=Math.max(-15,Math.ceil((dMax+5)/20)*20);
+      if(yMax-yMin<40) yMax=yMin+40;
+      const yOf=v=>pad.t+(H-pad.t-pad.b)*(1-(v-yMin)/(yMax-yMin));
+      const ctx=cv.getContext('2d');
       ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=1.5;
       ctx.beginPath(); ctx.moveTo(x,pad.t); ctx.lineTo(x,H-pad.b); ctx.stroke();
-      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x, pad.t+16+(H-pad.t-pad.b)*(1-(p.r-(-110))/95), 4, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x, yOf(p.r), 4, 0, Math.PI*2); ctx.fill();
       // 数值气泡
-      ctx.fillStyle='rgba(0,0,0,0.7)';
+      ctx.fillStyle='rgba(0,0,0,0.75)';
       const tx = Math.min(Math.max(x-28, pad.l), W-pad.r-56);
       ctx.fillRect(tx, pad.t-2, 56, 16);
       ctx.fillStyle='#fff'; ctx.font='bold 10px monospace'; ctx.textAlign='left';
@@ -3592,7 +3600,7 @@ function _rssiPlayTick(now){
     if(label){
       const t = _rssiPlayHist[idx].t;
       const d=new Date(t);
-      label.textContent = d.toLocaleTimeString()+' · 采样'+(idx+1)+'/'+_rssiPlayHist.length;
+      label.textContent = d.toLocaleTimeString()+' · '+(idx+1)+'/'+_rssiPlayHist.length;
     }
   }
   if(ratio < 1){
@@ -3600,12 +3608,15 @@ function _rssiPlayTick(now){
   } else {
     const btn=document.getElementById('trkPlayBtn');
     if(btn) btn.textContent='🔄 重播';
+    _rssiPlayPauseAccum = 0;
   }
 }
+let _rssiPlayPauseAccum = 0, _rssiPauseAt = 0;
 function toggleRssiPlay(){
   const btn=document.getElementById('trkPlayBtn');
   if(btn && btn.textContent.indexOf('重播')>=0){
     _rssiPlayStart=performance.now(); _rssiPaused=false;
+    _rssiPlayPauseAccum=0; _rssiPlayIdx=0;
     btn.textContent='⏸ 暂停';
     cancelAnimationFrame(_rssiPlayRaf);
     _rssiPlayRaf=requestAnimationFrame(_rssiPlayTick);
@@ -3613,7 +3624,12 @@ function toggleRssiPlay(){
   }
   _rssiPaused = !_rssiPaused;
   if(btn) btn.textContent = _rssiPaused?'▶ 继续':'⏸ 暂停';
-  if(!_rssiPaused){ _rssiPlayStart = performance.now() - (_rssiPlayDur*Math.min(1,(_rssiPlayIdx/(_rssiPlayHist?_rssiPlayHist.length-1:1)))); }
+  if(_rssiPaused){
+    _rssiPauseAt = performance.now();
+  } else {
+    // 继续时：把暂停期间的时间从起点扣除，保证进度不跳
+    _rssiPlayStart += (performance.now() - _rssiPauseAt);
+  }
 }
 
 function drawRssiReplay(cv, hist, avgRssi, lastRssi){
@@ -3857,7 +3873,7 @@ function buildKML(placemarks){
   kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n';
   kml += '<Document>\n';
   kml += '  <name>RID 侦测轨迹导出</name>\n';
-  kml += '  <description>由 RID 侦测监控 v2.3.2 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
+  kml += '  <description>由 RID 侦测监控 v2.3.3 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
   kml += '  <Style id="ridLine"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>\n';
   kml += '  <Style id="ridStart"><IconStyle><color>ff00ff00</color><scale>1</scale></IconStyle></Style>\n';
   kml += '  <Style id="ridEnd"><IconStyle><color>ff0000ff</color><scale>1</scale></IconStyle></Style>\n';
