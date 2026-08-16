@@ -855,6 +855,50 @@ function showDetail(id) {
     </div>`;
   }
 
+  // === v2.2.13: 侦测时序（不依赖GPS，始终显示）===
+  const nowTs = Date.now();
+  const firstSeen = d._firstSeen || (d.history && d.history.length ? d.history[0].t : null);
+  const lastSeen = d._lastSeen || nowTs;
+  const isActive = (nowTs - lastSeen) < 30000;
+  const trackDur = firstSeen ? Math.round((isActive ? nowTs : lastSeen) - firstSeen)/1000 : 0;
+  const fmtFull = ts => {
+    if(!ts) return '--';
+    const dd = new Date(ts);
+    const p = n => String(n).padStart(2,'0');
+    return `${p(dd.getMonth()+1)}-${p(dd.getDate())} ${p(dd.getHours())}:${p(dd.getMinutes())}:${p(dd.getSeconds())}`;
+  };
+  const fmtDur = sec => {
+    sec = Math.round(sec);
+    if(sec < 60) return sec + '秒';
+    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+    return (h?h+'小时':'') + m + '分' + s + '秒';
+  };
+  html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">⏱️</span> 侦测时序</div>
+    <div class="d-grid">
+      <div class="d-field highlight">
+        <div class="df-label">首次发现</div>
+        <div class="df-value" style="color:#67c23a">${fmtFull(firstSeen)}</div>
+      </div>
+      <div class="d-field highlight">
+        <div class="df-label">${isActive ? '最后信号' : '信号消失'}</div>
+        <div class="df-value" style="color:${isActive?'#409eff':'#909399'}">${fmtFull(lastSeen)}${isActive?' <span style="font-size:10px;color:#67c23a">●在线</span>':' <span style="font-size:10px;color:#909399">●离线</span>'}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">追踪时长</div>
+        <div class="df-value">${fmtDur(trackDur)}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">最后RSSI</div>
+        <div class="df-value">${d.rssi!==undefined?d.rssi+' dBm':'--'}</div>
+      </div>
+      <div class="d-field full" style="background:rgba(64,158,255,0.04);border-color:rgba(64,158,255,0.15)">
+        <div class="df-label" style="font-size:10px;color:#909399">ℹ️ 说明</div>
+        <div class="df-value" style="font-size:11px;color:#909399;line-height:1.5">"首次发现"为侦测设备收到该目标信号的时间，并非无人机真实起飞时间；"信号消失"为最后一次收到信号的时间（30秒无更新判定离线）。标准RID协议本身不播发起飞时间。</div>
+      </div>
+    </div>
+  </div>`;
+
   // === 飞行轨迹概览 ===
   if(d.history && d.history.length > 1) {
     let totalDist = 0;
@@ -1893,7 +1937,7 @@ function parseResp(text){
         const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
         const id = hasSN ? msg.basic_id.uas_id : (msg.mac ? ('MAC_'+msg.mac) : (msg.id || ('UAV_'+(msg.ts||''))));
         const _isNew = !droneData[id];
-        if(_isNew) droneData[id] = { history: [], _macs: {} };
+        if(_isNew) droneData[id] = { history: [], _macs: {}, _firstSeen: Date.now() };
         // v2.2.8: 初始化默认值，防止无坐标目标点详情时 toFixed 崩溃
         if(droneData[id].speed === undefined) droneData[id].speed = 0;
         if(droneData[id].heading === undefined) droneData[id].heading = 0;
@@ -1951,7 +1995,7 @@ function parseResp(text){
         if(sn){
           id = sn;
           // v2.0.5: 记录此 SN 关联的所有 MAC，用于 uav_timeout 判断
-          if(!droneData[sn]) droneData[sn] = { history: [], _macs: {} };
+          if(!droneData[sn]) droneData[sn] = { history: [], _macs: {}, _firstSeen: Date.now() };
           if(!droneData[sn]._macs) droneData[sn]._macs = {};
           droneData[sn]._macs[msg.mac] = Date.now();
 
@@ -1985,7 +2029,7 @@ function parseResp(text){
           }
         } else {
           id = macId;
-          if(!droneData[id]) droneData[id] = { history: [] };
+          if(!droneData[id]) droneData[id] = { history: [], _firstSeen: Date.now() };
         }
         // v2.2.13: 无论是否有定位，都更新最后出现时间/RSSI/基本信息
         droneData[id]._lastSeen = Date.now();
