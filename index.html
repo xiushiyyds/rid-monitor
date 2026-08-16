@@ -1410,7 +1410,16 @@ function parseResp(text){
     try {
       msg = JSON.parse(text);
     } catch(e){
-      addLog('error','[JSON解析失败] '+e.message+' | 原文: '+text.substring(0,120));
+      const posMatch = e.message.match(/position (\d+)/);
+      let diag = '';
+      if(posMatch){
+        const p = parseInt(posMatch[1]);
+        const around = text.substring(Math.max(0,p-10), p+10);
+        const codes = [];
+        for(let i=Math.max(0,p-3); i<Math.min(text.length,p+3); i++) codes.push(i+':'+text.charCodeAt(i)+'('+text[i]+')');
+        diag = ' | 位置'+p+'上下文:['+around+'] 字符码:'+codes.join(' ');
+      }
+      addLog('error','[JSON解析失败] '+e.message+diag+' | 全文('+text.length+'): '+text);
       return;
     }
     try {
