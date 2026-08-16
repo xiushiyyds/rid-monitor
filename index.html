@@ -3515,12 +3515,30 @@ function openRssiReplay(id){
       if(!cv){
         cv = document.createElement('canvas');
         cv.id = 'rssiReplayCanvas';
-        cv.style.width='100%'; cv.style.height='240px';
+        cv.style.width='100%'; cv.style.height='260px'; cv.style.display='block';
         cv.style.background='#0a1929'; cv.style.borderRadius='8px';
+        cv.style.marginBottom='8px';
         mapEl.parentNode.insertBefore(cv, mapEl);
       }
       cv.style.display='block';
-      drawRssiReplay(cv, rec.rssiHist, rec.avgRssi, rec.lastRssi);
+      // v2.3.2: 用 rAF 等容器布局完成再画，避免 clientWidth=0 画成 300×260 小块
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        drawRssiReplay(cv, rec.rssiHist, rec.avgRssi, rec.lastRssi);
+        // 播放扫描游标动画：一根白色竖线从左走到右
+        _rssiPlayIdx = 0;
+        _rssiPlayHist = rec.rssiHist;
+        const tMin=rec.rssiHist[0].t, tMax=rec.rssiHist[rec.rssiHist.length-1].t;
+        _rssiPlayDur = Math.max(tMax-tMin, 4000); // 至少4秒
+        _rssiPlayStart = performance.now();
+        const playBtn = document.getElementById('trkPlayBtn');
+        if(playBtn){ playBtn.textContent = '⏸ 暂停'; playBtn.onclick = toggleRssiPlay; }
+        const playRow = document.getElementById('trackPlayRow');
+        if(playRow) playRow.style.display='flex';
+        const label = document.getElementById('trkTimeLabel');
+        if(label) label.textContent = '扫描中...';
+        cancelAnimationFrame(_rssiPlayRaf);
+        _rssiPlayRaf = requestAnimationFrame(_rssiPlayTick);
+      }));
       // 信息区
       const info = document.getElementById('trackReplayInfo');
       if(info){
@@ -3531,11 +3549,71 @@ function openRssiReplay(id){
           <div class="ti"><div class="l">最强/最弱</div><div class="v">${maxR}/${minR}dBm</div></div>
           <div class="ti"><div class="l">最后RSSI</div><div class="v">${rec.lastRssi?rec.lastRssi+'dBm':'--'}</div></div>`;
       }
-      // 隐藏播放控制（信号曲线无需播放）
-      const playRow = document.getElementById('trackPlayRow');
-      if(playRow) playRow.style.display='none';
     }, 100);
   });
+}
+
+// v2.3.2: RSSI 回放的扫描动画状态
+let _rssiPlayRaf=0, _rssiPlayIdx=0, _rssiPlayHist=null, _rssiPlayStart=0, _rssiPlayDur=0, _rssiPaused=false;
+function _rssiPlayTick(now){
+  if(!_rssiPlayHist || _rssiPaused){ _rssiPlayRaf=requestAnimationFrame(_rssiPlayTick); return; }
+  const elapsed = now - _rssiPlayStart;
+  const ratio = Math.min(elapsed/_rssiPlayDur, 1);
+  const idx = Math.round(ratio*(_rssiPlayHist.length-1));
+  if(idx !== _rssiPlayIdx){
+    _rssiPlayIdx = idx;
+    const cv = document.getElementById('rssiReplayCanvas');
+    if(cv){
+      drawRssiReplay(cv, _rssiPlayHist,
+        _rssiPlayHist.reduce((s,p)=>s+p.r,0)/_rssiPlayHist.length,
+        _rssiPlayHist[_rssiPlayHist.length-1].r);
+      // 画扫描游标
+      const dpr=window.devicePixelRatio||1;
+      const ctx=cv.getContext('2d'); const W=cv.clientWidth||320, H=260;
+      const pad={l:36,r:12,t:16,b:24}, w=W-pad.l-pad.r;
+      const tMin=_rssiPlayHist[0].t, tMax=_rssiPlayHist[_rssiPlayHist.length-1].t;
+      const xOf=t=>pad.l+(tMax===tMin?w/2:w*(t-tMin)/(tMax-tMin));
+      const x=xOf(_rssiPlayHist[idx].t);
+      // 游标处的实际 RSSI 值
+      const p=_rssiPlayHist[idx];
+      ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(x,pad.t); ctx.lineTo(x,H-pad.b); ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x, pad.t+16+(H-pad.t-pad.b)*(1-(p.r-(-110))/95), 4, 0, Math.PI*2); ctx.fill();
+      // 数值气泡
+      ctx.fillStyle='rgba(0,0,0,0.7)';
+      const tx = Math.min(Math.max(x-28, pad.l), W-pad.r-56);
+      ctx.fillRect(tx, pad.t-2, 56, 16);
+      ctx.fillStyle='#fff'; ctx.font='bold 10px monospace'; ctx.textAlign='left';
+      ctx.fillText(p.r+' dBm', tx+4, pad.t+10);
+      ctx.textAlign='start';
+    }
+    // 更新时间标签
+    const label=document.getElementById('trkTimeLabel');
+    if(label){
+      const t = _rssiPlayHist[idx].t;
+      const d=new Date(t);
+      label.textContent = d.toLocaleTimeString()+' · 采样'+(idx+1)+'/'+_rssiPlayHist.length;
+    }
+  }
+  if(ratio < 1){
+    _rssiPlayRaf = requestAnimationFrame(_rssiPlayTick);
+  } else {
+    const btn=document.getElementById('trkPlayBtn');
+    if(btn) btn.textContent='🔄 重播';
+  }
+}
+function toggleRssiPlay(){
+  const btn=document.getElementById('trkPlayBtn');
+  if(btn && btn.textContent.indexOf('重播')>=0){
+    _rssiPlayStart=performance.now(); _rssiPaused=false;
+    btn.textContent='⏸ 暂停';
+    cancelAnimationFrame(_rssiPlayRaf);
+    _rssiPlayRaf=requestAnimationFrame(_rssiPlayTick);
+    return;
+  }
+  _rssiPaused = !_rssiPaused;
+  if(btn) btn.textContent = _rssiPaused?'▶ 继续':'⏸ 暂停';
+  if(!_rssiPaused){ _rssiPlayStart = performance.now() - (_rssiPlayDur*Math.min(1,(_rssiPlayIdx/(_rssiPlayHist?_rssiPlayHist.length-1:1)))); }
 }
 
 function drawRssiReplay(cv, hist, avgRssi, lastRssi){
@@ -3614,6 +3692,8 @@ function openTrackReplay(id){
     if(cv) cv.style.display='none';
     const playRow = document.getElementById('trackPlayRow');
     if(playRow) playRow.style.display='';
+    const playBtn = document.getElementById('trkPlayBtn');
+    if(playBtn){ playBtn.textContent='▶ 播放'; playBtn.onclick=toggleTrackPlay; }
     document.getElementById('trackReplayOverlay').classList.add('show');
     // 等弹窗动画结束再初始化地图
     setTimeout(()=>initTrackReplayMap(rec), 350);
@@ -3748,13 +3828,17 @@ function destroyTrackReplayMap(){
 function closeTrackReplay(){
   document.getElementById('trackReplayOverlay').classList.remove('show');
   destroyTrackReplayMap();
-  // v2.3.1: 恢复 RSSI 回放时隐藏的元素
+  // v2.3.1/v2.3.2: 恢复 RSSI 回放时隐藏/改动的元素
   const mapEl = document.getElementById('trackReplayMap');
   if(mapEl) mapEl.style.display='';
   const cv = document.getElementById('rssiReplayCanvas');
   if(cv) cv.style.display='none';
   const playRow = document.getElementById('trackPlayRow');
   if(playRow) playRow.style.display='';
+  const playBtn = document.getElementById('trkPlayBtn');
+  if(playBtn){ playBtn.textContent='▶ 播放'; playBtn.onclick=toggleTrackPlay; }
+  _rssiPlayHist=null; _rssiPaused=false;
+  cancelAnimationFrame(_rssiPlayRaf); _rssiPlayRaf=0;
   _trkRec = null;
 }
 
