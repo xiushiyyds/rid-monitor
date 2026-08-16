@@ -1117,11 +1117,19 @@ function showDetail(id) {
 
   // === 无人机位置 === v2.2.8: 无坐标时显示定位中，不再 toFixed 崩溃
   if(d.wgs_lat !== undefined && d.wgs_lon !== undefined && !d._noLoc){
+  const droneAmapUri = `https://uri.amap.com/marker?position=${d.gcj_lon.toFixed(6)},${d.gcj_lat.toFixed(6)}&name=${encodeURIComponent('无人机位置')}&coordinate=gaode&callnative=1&src=ridmonitor&callnative=1`;
+  const droneBaiduUri = `https://api.map.baidu.com/marker?location=${d.wgs_lat.toFixed(6)},${d.wgs_lon.toFixed(6)}&title=${encodeURIComponent('无人机位置')}&content=RID&output=html&coord_type=wgs84`;
+  const droneGeoUri = `geo:${d.wgs_lat.toFixed(6)},${d.wgs_lon.toFixed(6)}?q=${d.wgs_lat.toFixed(6)},${d.wgs_lon.toFixed(6)}(${encodeURIComponent('无人机位置')})`;
   html += `<div class="detail-section">
     <div class="detail-section-title"><span class="icon">📍</span> 无人机位置</div>
     <div class="d-grid">
       <div class="d-field full"><div class="df-label">WGS-84 坐标 (GPS原始)</div><div class="df-value">${d.wgs_lat.toFixed(6)}, ${d.wgs_lon.toFixed(6)}</div></div>
       <div class="d-field full highlight"><div class="df-label">GCJ-02 坐标 (高德地图)</div><div class="df-value">${d.gcj_lat.toFixed(6)}, ${d.gcj_lon.toFixed(6)}</div></div>
+      <div class="d-field full" style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="${droneAmapUri}" target="_blank" style="flex:1;min-width:90px;text-align:center;padding:8px 6px;background:#1a9b4a;color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600">🟢 高德导航到飞机</a>
+        <a href="${droneBaiduUri}" target="_blank" style="flex:1;min-width:90px;text-align:center;padding:8px 6px;background:#2a6fd6;color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600">🔵 百度地图</a>
+        <a href="${droneGeoUri}" style="flex:1;min-width:90px;text-align:center;padding:8px 6px;background:#555;color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600">🧭 系统地图</a>
+      </div>
     </div>
   </div>`;
   } else {
@@ -1152,7 +1160,8 @@ function showDetail(id) {
         </div>
         <div style="text-align:center">
           <canvas class="qr-canvas" id="qrOp_${id}" width="80" height="80"></canvas>
-          <div style="font-size:9px;color:#e6a23c;margin-top:2px;font-weight:600">📱 扫码导航到飞手</div>
+          <div style="font-size:9px;color:#e6a23c;margin-top:2px;font-weight:600">📱 扫码导航</div>
+          <a href="${amapUri}" target="_blank" style="display:block;margin-top:6px;padding:6px 4px;background:#1a9b4a;color:#fff;border-radius:5px;text-decoration:none;font-size:11px;font-weight:600">🟢 一键导航</a>
         </div>
       </div>
     </div>`;
@@ -1288,7 +1297,7 @@ function showDetail(id) {
     setTimeout(()=>{
       const qrCanvas = document.getElementById(`qrOp_${id}`);
       if(qrCanvas) {
-        const [oLng,oLat] = wgs84ToGcj02(d.op_lon, d.op_lat);
+        const [oLng,oLat] = wgs84ToGcj02(d.op_lon, d.op_lon);
         const amapUrl = `https://uri.amap.com/marker?position=${oLng.toFixed(6)},${oLat.toFixed(6)}&name=${encodeURIComponent('飞手位置')}&coordinate=gaode&callnative=1`;
         generateQR(qrCanvas, amapUrl, 80);
       }
