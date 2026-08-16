@@ -355,7 +355,7 @@ body {
     <div id="map-container"></div>
     <div class="map-overlay">
       <div class="map-stat">目标: <span class="val" id="mapTargetCount">0</span></div>
-      <div class="map-stat" id="gpsStat">GPS: <span class="val">等待定位</span></div>
+      <div class="map-stat" id="gpsStat" style="cursor:pointer" onclick="togglePhoneGps()" title="点击切换手机GPS定位">GPS: <span class="val">等待定位</span></div>
       <div class="map-stat" id="rangeStat">半径: <span class="val">--</span></div>
     </div>
     <div class="map-legend">
@@ -791,6 +791,83 @@ let accuracyCircle=null;  // GPS精度圆圈
 
 // v2.2.16: 侦测设备自身 WGS-84 坐标（用于方位/距离计算和连线）
 let selfWgsLat=null, selfWgsLon=null, selfGpsValid=false;
+let phoneGpsOn=false, phoneGpsWatchId=null, phoneGpsAccuracy=null;
+let boardGpsValid=false, boardGpsLat=null, boardGpsLon=null;  // 板子GPS（如果有则优先）
+const GPS_SRC_BOARD='板子', GPS_SRC_PHONE='手机', GPS_SRC_NONE='无';
+function gpsSource(){ return boardGpsValid?GPS_SRC_BOARD:(phoneGpsOn&&selfGpsValid?GPS_SRC_PHONE:GPS_SRC_NONE); }
+
+function togglePhoneGps(){
+  if(!navigator.geolocation){ addLog('warn','[GPS] 浏览器不支持定位'); return; }
+  if(phoneGpsOn){
+    navigator.geolocation.clearWatch(phoneGpsWatchId);
+    phoneGpsOn=false; phoneGpsWatchId=null;
+    // 如果板子也没定位，清空自身位置
+    if(!boardGpsValid){ selfWgsLat=null; selfWgsLon=null; selfGpsValid=false; }
+    else { selfWgsLat=boardGpsLat; selfWgsLon=boardGpsLon; selfGpsValid=true; }
+    updateGpsStat();
+    addLog('info','[GPS] 手机定位已关闭');
+    return;
+  }
+  addLog('info','[GPS] 正在请求手机定位...');
+  phoneGpsOn=true;
+  phoneGpsWatchId = navigator.geolocation.watchPosition(
+    (pos)=>{
+      const lat=pos.coords.latitude, lon=pos.coords.longitude;
+      phoneGpsAccuracy = pos.coords.accuracy;
+      // 板子GPS优先，手机GPS作为备用
+      if(!boardGpsValid){
+        const sm0=gpsSmoothPush(lat,lon);
+        selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
+        updateSelfMarker();
+        updateGpsStat();
+      }
+      addLog('success',`[GPS] 手机定位: ${lat.toFixed(6)},${lon.toFixed(6)} 精度±${Math.round(pos.coords.accuracy)}m`);
+    },
+    (err)=>{
+      phoneGpsOn=false;
+      const msg = err.code===1?'用户拒绝定位权限':(err.code===2?'定位不可用':(err.code===3?'定位超时':err.message));
+      addLog('error',`[GPS] 手机定位失败: ${msg}`);
+      updateGpsStat();
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
+  );
+  updateGpsStat();
+}
+
+function updateGpsStat(){
+  const el = document.getElementById('gpsStat');
+  if(!el) return;
+  const src = gpsSource();
+  if(src===GPS_SRC_NONE){
+    el.innerHTML = 'GPS: <span class="val" style="color:var(--text-dim)">点击开启</span>';
+    el.style.opacity='0.7';
+  } else if(src===GPS_SRC_BOARD){
+    el.innerHTML = '📡 板子GPS';
+    el.style.opacity='1';
+  } else {
+    const acc = phoneGpsAccuracy?` ±${Math.round(phoneGpsAccuracy)}m`:'';
+    el.innerHTML = `📱 手机GPS${acc}`;
+    el.style.opacity='1';
+  }
+}
+
+function updateSelfMarker(){
+  if(!map || !centerMarker || !selfGpsValid || selfWgsLat===null) return;
+  try {
+    const [gcjLng,gcjLat]=wgs84ToGcj02(selfWgsLon, selfWgsLat);
+    const src=gpsSource();
+    const color = src===GPS_SRC_BOARD?'#409eff':'#10b981';
+    const label = src===GPS_SRC_BOARD?'侦测设备':'我的位置';
+    map.remove(centerMarker);
+    centerMarker = new AMap.Marker({
+      position:[gcjLng,gcjLat],
+      content:`<div style="position:relative"><div style="width:18px;height:18px;background:${color};border:3px solid white;border-radius:50%;box-shadow:0 0 10px ${color}99"></div><div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;background:${color}e6;color:white;padding:1px 6px;border-radius:4px">${label}</div></div>`,
+      offset: new AMap.Pixel(-9,-9)
+    });
+    map.add(centerMarker);
+    centerMarker.show();
+  } catch(e){ console.warn('updateSelfMarker',e); }
+}
 // v2.2.16: 自己→无人机连线
 let selfToDroneLines={};
 
@@ -2616,11 +2693,20 @@ function parseResp(text){
       const valid = (lat!==0 && lon!==0 && sats>0);
       // v2.2.16: 更新自身定位状态（有效时用平滑坐标，无效时清空）
       if(valid){
+        boardGpsValid=true; boardGpsLat=lat; boardGpsLon=lon;
+        // 板子GPS优先于手机GPS
         const sm0=gpsSmoothPush(lat,lon);
         selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
       } else {
-        selfWgsLat=null; selfWgsLon=null; selfGpsValid=false;
+        boardGpsValid=false; boardGpsLat=null; boardGpsLon=null;
+        // 板子无GPS时如果手机GPS开着，用手机的
+        if(phoneGpsOn && selfGpsValid){
+          // 保持手机GPS的值，不清空
+        } else {
+          selfWgsLat=null; selfWgsLon=null; selfGpsValid=false;
+        }
       }
+      updateGpsStat();
       if(valid && map && centerMarker){
         // 滑动窗口平滑滤波（已在上面 push 过，复用结果）
         const sm = gpsWindow.length ? {lat:selfWgsLat, lon:selfWgsLon, spread: (function(){
@@ -2656,14 +2742,19 @@ function parseResp(text){
         // 状态显示：卫星数 + HDOP + 精度
         const hdopStr = hdop>0 ? ` HDOP:${hdop.toFixed(1)}` : '';
         const qualityStr = hdop>0 ? (hdop<1.5?'优秀':hdop<3?'良好':hdop<5?'一般':'较差') : '';
-        document.getElementById('gpsStat').innerHTML=`GPS: <span class="val">${lat.toFixed(5)},${lon.toFixed(4)} (${sats}星${hdopStr} ±${circleRadius.toFixed(0)}m)</span>`;
+        updateGpsStat();
+        const _gs=document.getElementById('gpsStat');
+        if(_gs) _gs.innerHTML=`📡 板子GPS ${sats}星${hdopStr} ±${circleRadius.toFixed(0)}m`;
         document.getElementById('gpsStatus').innerHTML = sats+'星'+(qualityStr?` <span style="color:${hdop<2?'#67c23a':hdop<4?'#e6a23c':'#f56c6c'}">${qualityStr}</span>`:'定位');
         document.getElementById('gpsStatus').className='value green';
         // v2.2.16: 自身定位变化时，重画所有在线目标的连线
         Object.keys(droneData).forEach(tid => updateSelfToDroneLine(tid));
       } else if(!valid) {
         // 未定位：不移动地图标记，只更新状态文字
-        document.getElementById('gpsStat').innerHTML='GPS: <span class="val" style="color:var(--orange)">搜索中 ('+sats+'星)</span>';
+        updateGpsStat();
+        const _gs2=document.getElementById('gpsStat');
+        if(_gs2 && boardGpsValid===false && !phoneGpsOn) _gs2.innerHTML='GPS: <span class="val" style="color:var(--orange)">搜索中 ('+sats+'星)</span>';
+        else if(_gs2 && phoneGpsOn && !boardGpsValid) {} // 手机GPS在用，保持手机状态
         document.getElementById('gpsStatus').textContent=sats>0?sats+'星(未定位)':'未定位';
         document.getElementById('gpsStatus').className='value orange';
         // v2.2.16: GPS 失效时移除所有连线
@@ -4202,6 +4293,7 @@ function initV230(){
 
 window.addEventListener('load',()=>{
   initMap();startStaleCleanTimer();initV230();
+  setTimeout(updateGpsStat,500);
   try{const v=localStorage.getItem('rid_fw_ver');if(v)document.getElementById('firmwareVer').textContent=v;}catch(e){}
   try{
     _loadAlertHistory();
