@@ -299,16 +299,11 @@ body {
   <!-- 控制 -->
   <div id="tab-control" class="tab-content active">
     <div class="card">
-      <h3>🔗 蓝牙连接</h3>
-      <button id="connectBtn" class="btn-connect" onclick="toggleConnect()">📡 连接 RID-Scanner</button>
-      <div class="device-info"><div>设备: <span id="deviceName">--</span></div><div>信号: <span id="rssiValue">--</span></div></div>
-    </div>
-    <div class="card" style="margin-top:12px">
-      <h3>🔌 USB 直连（推荐）</h3>
+      <h3>🔌 USB 直连</h3>
       <button id="serialBtn" class="btn-connect" onclick="toggleUsb()" style="background:linear-gradient(135deg,#0d8b5f,#10b981);color:#fff;border:none">🔗 USB 连接设备</button>
       <div style="font-size:12px;color:var(--text-dim);margin-top:8px;line-height:1.5">
-        用数据线连接电脑/手机和 ESP32-C5，数据通过 USB 直传，不经过蓝牙，更稳定。<br>
-        <b>Win7/华为/安卓 Chrome</b> 均支持（需先安装 Zadig WinUSB 驱动）。
+        用数据线连接电脑/手机和 ESP32-C5，数据通过 USB 直传，稳定可靠。<br>
+        <b>Win7/华为/安卓 Chrome/Edge</b> 均支持（Win7 需先安装 Zadig WinUSB 驱动）。
       </div>
       <div class="device-info"><div>设备: <span id="serialPortInfo">--</span></div></div>
     </div>
@@ -346,8 +341,7 @@ body {
     <div class="card">
       <h3>📋 通信日志</h3>
       <div class="log-content" id="logContent">
-        <div class="log-line info">[系统] RID 侦测监控页面已加载</div>
-        <div class="log-line info">[系统] 等待蓝牙连接...</div>
+        <div class="log-line info">[系统] RID 侦测监控页面已加载，请点击 USB 连接设备</div>
       </div>
     </div>
   </div>
