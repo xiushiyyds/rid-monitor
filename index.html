@@ -1404,8 +1404,22 @@ function parseResp(text){
   }
   // JSON 格式数据
   if(text.startsWith('{')){
+    let msg;
     try {
-      const msg = JSON.parse(text);
+      msg = JSON.parse(text);
+    } catch(e){
+      addLog('error','[JSON解析失败] '+e.message+' | 原文: '+text.substring(0,120));
+      return;
+    }
+    try {
+      // v2.2.4 诊断：记录每条 UAV 消息的关键字段
+      if(msg.evt && msg.evt.startsWith('uav_')){
+        const hasLoc = (msg.lat!==undefined && msg.lon!==undefined);
+        const hasLocObj = !!msg.location;
+        const hasSN = msg.basic_id && msg.basic_id.uas_id;
+        const hasMAC = !!msg.mac;
+        addLog('info',`[解析] evt=${msg.evt} lat=${msg.lat??'-'} lon=${msg.lon??'-'} locObj=${hasLocObj?'Y':'N'} sn=${hasSN?'Y':'N'} mac=${hasMAC?'Y':'N'}`);
+      }
       // 启动横幅：解析固件版本、信道、最大目标数等
       if(msg.evt === 'startup'){
         if(msg.version) document.getElementById('firmwareVer').textContent=msg.version;
@@ -1580,7 +1594,9 @@ function parseResp(text){
         updateTargetList(id);
       }
       return;
-    } catch(e){ /* 非 JSON 行，继续后续解析 */ }
+    } catch(e){
+      addLog('error','[消息处理异常] '+e.message+' | evt='+(msg?msg.evt:'?')+' | '+text.substring(0,100));
+    }
   }
   // DRONE:id,lat,lon,alt,speed,heading,sn,op_lat,op_lon,ua_type
   if(text.startsWith('DRONE:')){
