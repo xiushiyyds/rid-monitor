@@ -2530,6 +2530,8 @@ function parseResp(text){
         droneData[id]._lastSeen = Date.now();
         // 只有有有效坐标时才更新地图
         if(hasLat && hasLon && (msg.lat !== 0 || msg.lon !== 0)){
+          // v2.4.4-fix: 收到有效坐标时必须清除 _noLoc 标志，否则雷达/地图永久跳过此目标
+          droneData[id]._noLoc = false;
           const relAlt = (msg.height !== undefined && msg.height !== null) ? msg.height : null;
           const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (msg.alt_baro || msg.alt_geo || 0);
           const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
@@ -2627,6 +2629,8 @@ function parseResp(text){
           if(droneData[id].alt === undefined) droneData[id].alt = 0;
           if(droneData[id].ua_type === undefined) droneData[id].ua_type = '未知';
         } else {
+          // v2.4.4-fix: 收到有效坐标时清除 _noLoc
+          droneData[id]._noLoc = false;
           // 相对高度优先，备选气压高度，再选大地高度
           const relAlt = (loc.height !== undefined && loc.height !== null) ? loc.height : null;
           const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (loc.alt_baro || loc.alt_geo || 0);
