@@ -2609,8 +2609,8 @@ function parseResp(text){
           droneData[id]._noLoc = false;
           const relAlt = (msg.height !== undefined && msg.height !== null) ? msg.height : null;
           const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (msg.alt_baro || msg.alt_geo || 0);
-          const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
-          const opLon = (msg.system && msg.system.operator_longitude) ? msg.system.operator_longitude : null;
+          const opLat = (msg.system && msg.system.operator_lat) ? msg.system.operator_lat : null;
+          const opLon = (msg.system && msg.system.operator_lon) ? msg.system.operator_lon : null;
           const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
           updateDroneOnMap(id, msg.lat, msg.lon, alt,
             (msg.speed_h||0).toFixed(1), (msg.direction||0).toFixed(0),
@@ -2709,8 +2709,8 @@ function parseResp(text){
           // 相对高度优先，备选气压高度，再选大地高度
           const relAlt = (loc.height !== undefined && loc.height !== null) ? loc.height : null;
           const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (loc.alt_baro || loc.alt_geo || 0);
-          const opLat = (msg.system && msg.system.operator_latitude) ? msg.system.operator_latitude : null;
-          const opLon = (msg.system && msg.system.operator_longitude) ? msg.system.operator_longitude : null;
+          const opLat = (msg.system && msg.system.operator_lat) ? msg.system.operator_lat : null;
+          const opLon = (msg.system && msg.system.operator_lon) ? msg.system.operator_lon : null;
           const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
           updateDroneOnMap(id, loc.latitude, loc.longitude, alt,
             (loc.speed_h||0).toFixed(1), (loc.direction||0).toFixed(0),
@@ -2744,8 +2744,8 @@ function parseResp(text){
           if(msg.dji.speed_v !== undefined) droneData[id].dji_speed_v = msg.dji.speed_v;
           if(msg.dji.heading !== undefined) droneData[id].dji_heading = msg.dji.heading;
           if(msg.dji.battery !== undefined) droneData[id].dji_battery = msg.dji.battery;
-          if(msg.dji.pilot_lat !== undefined) droneData[id].dji_pilot_lat = msg.dji.pilot_lat;
-          if(msg.dji.pilot_lon !== undefined) droneData[id].dji_pilot_lon = msg.dji.pilot_lon;
+          if(msg.dji.pilot_lat !== undefined) { droneData[id].dji_pilot_lat = msg.dji.pilot_lat; if(!droneData[id].op_lat) droneData[id].op_lat = msg.dji.pilot_lat; }
+          if(msg.dji.pilot_lon !== undefined) { droneData[id].dji_pilot_lon = msg.dji.pilot_lon; if(!droneData[id].op_lon) droneData[id].op_lon = msg.dji.pilot_lon; }
           if(msg.dji.identification !== undefined) droneData[id].dji_id = msg.dji.identification;
         }
         // v2.2.12: 新目标提醒（SN 合并后才真正完整，此时提醒一次）
