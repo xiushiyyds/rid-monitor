@@ -1,0 +1,4359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>RID Station S3 蓝牙侦测监控 v3.0.0</title>
+<script src="https://webapi.amap.com/loader.js"></script>
+<style>
+:root {
+  --bg-primary: #f5f6fa;
+  --bg-secondary: #ffffff;
+  --bg-input: #f0f2f5;
+  --border: #e4e7ed;
+  --text-primary: #1a1a2e;
+  --text-secondary: #606266;
+  --accent: #409eff;
+  --green: #67c23a;
+  --red: #f56c6c;
+  --orange: #e6a23c;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg-primary); color: var(--text-primary);
+  min-height: 100vh; overflow-x: hidden;
+}
+.container { max-width: 480px; margin: 0 auto; padding: 0 12px 12px; }
+
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; background: var(--bg-secondary);
+  border-radius: 12px; margin: 12px 0;
+  border: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.header h1 { font-size: 15px; font-weight: 600; }
+.badge { font-size: 11px; padding: 3px 8px; border-radius: 12px; background: var(--bg-input); color: var(--text-secondary); }
+.badge.connected { background: rgba(103,194,58,0.12); color: var(--green); }
+
+.map-section {
+  position: relative; width: 100%; height: 320px;
+  border-radius: 12px; overflow: hidden; margin-bottom: 12px;
+  border: 1px solid var(--border); background: #e8e8e8;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+#map-container { width: 100%; height: 100%; }
+.map-overlay {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+.map-stat {
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(8px);
+  padding: 4px 10px; border-radius: 8px; font-size: 11px;
+  color: var(--text-primary); border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.map-stat .val { color: var(--green); font-weight: 600; }
+.map-legend {
+  position: absolute; bottom: 8px; right: 8px; z-index: 10;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(8px);
+  padding: 6px 10px; border-radius: 8px; font-size: 10px;
+  border: 1px solid var(--border); box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); }
+
+.tabs {
+  display: flex; margin-bottom: 12px;
+  background: var(--bg-secondary); border-radius: 10px;
+  overflow: hidden; border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.tab {
+  flex: 1; padding: 10px; text-align: center;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all 0.2s;
+  color: var(--text-secondary); border: none; background: none;
+}
+.tab.active { background: var(--accent); color: white; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.card {
+  background: var(--bg-secondary); border-radius: 12px;
+  padding: 16px; margin-bottom: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.card h3 { font-size: 13px; color: var(--text-secondary); margin-bottom: 14px; letter-spacing: 0.5px; }
+
+.btn-connect {
+  width: 100%; padding: 14px; border: none; border-radius: 10px;
+  font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+  background: linear-gradient(135deg, #409eff, #337ecc); color: white;
+}
+.btn-connect:active { transform: scale(0.98); }
+.btn-connect.disconnect { background: var(--bg-input); color: var(--red); border: 1px solid rgba(245,108,108,0.3); }
+.device-info { display: flex; gap: 12px; margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
+.device-info span { color: var(--accent); }
+
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.info-item { background: var(--bg-input); padding: 10px 12px; border-radius: 8px; }
+.info-item .label { font-size: 11px; color: var(--text-secondary); }
+.info-item .value { font-size: 15px; font-weight: 600; margin-top: 2px; }
+.info-item .value.green { color: var(--green); }
+.info-item .value.blue { color: var(--accent); }
+.info-item .value.orange { color: var(--orange); }
+
+.target-list { max-height: 350px; overflow-y: auto; }
+.target-item {
+  display: flex; align-items: center;
+  padding: 10px 12px; background: var(--bg-input);
+  border-radius: 8px; margin-bottom: 4px; font-size: 12px;
+  cursor: pointer; transition: background 0.15s;
+}
+.target-item:active { background: #dcdfe6; }
+.target-dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 10px; flex-shrink: 0; background: var(--green); box-shadow: 0 0 6px rgba(103,194,58,0.5); }
+.target-id { color: var(--text-primary); font-weight: 500; }
+.target-sn { color: var(--accent); font-size: 11px; margin: 0 8px; flex-shrink: 0; }
+.target-pos { color: var(--text-secondary); font-size: 11px; margin-left: auto; }
+/* v2.2.16: RSSI 信号强度条 */
+.rssi-bars{display:inline-flex;align-items:flex-end;gap:2px;margin-left:6px;height:14px;vertical-align:middle}
+.rssi-bars .bar{width:3px;background:#dcdfe6;border-radius:1px;transition:background 0.3s}
+.rssi-bars .bar.on{background:#67c23a}
+.rssi-bars .bar.mid{background:#e6a23c}
+.rssi-bars .bar.weak{background:#f56c6c}
+.rssi-val{font-size:10px;color:var(--text-secondary);margin-left:3px}
+
+/* ============ 详情弹窗 ============ */
+.detail-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.45); z-index: 200;
+  justify-content: center; align-items: flex-end;
+}
+.detail-overlay.show { display: flex; }
+.detail-panel {
+  background: white; border-radius: 16px 16px 0 0;
+  width: 100%; max-width: 480px;
+  max-height: 80vh; overflow-y: auto;
+  animation: slideUp 0.3s ease;
+  padding-bottom: env(safe-area-inset-bottom, 12px);
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes pulseDot { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } 100% { transform: scale(1); opacity: 1; } }
+
+.detail-top {
+  position: sticky; top: 0; background: white; z-index: 5;
+  padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.detail-top-left h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.detail-top-left p { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.detail-close {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--bg-input); border: none; font-size: 14px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary); flex-shrink: 0;
+}
+
+.detail-body { padding: 16px; }
+
+.detail-section {
+  margin-bottom: 16px;
+}
+.detail-section-title {
+  font-size: 12px; color: var(--text-secondary); font-weight: 600;
+  margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 4px;
+}
+.detail-section-title .icon { font-size: 14px; }
+
+.d-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.d-field { background: var(--bg-input); padding: 8px 10px; border-radius: 8px; }
+.d-field .df-label { font-size: 10px; color: var(--text-secondary); }
+.d-field .df-value { font-size: 13px; font-weight: 600; margin-top: 1px; color: var(--text-primary); word-break: break-all; }
+.d-field.full { grid-column: 1 / -1; }
+.d-field.highlight { background: rgba(64,158,255,0.06); border: 1px solid rgba(64,158,255,0.15); }
+.alert-badge{display:inline-block;min-width:16px;height:16px;line-height:16px;padding:0 4px;margin-left:4px;background:#f56c6c;color:#fff;border-radius:8px;font-size:10px;font-weight:700;text-align:center;vertical-align:middle}
+.alert-item{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);align-items:flex-start;cursor:pointer;transition:background 0.15s}
+.alert-item:hover{background:rgba(64,158,255,0.06)}
+.alert-item:last-child{border-bottom:none}
+.alert-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.alert-icon.new{background:rgba(103,194,58,0.15);color:#67c23a}
+.alert-icon.geo{background:rgba(245,108,108,0.15);color:#f56c6c}
+.alert-icon.timeout{background:rgba(144,147,153,0.15);color:#909399}
+.alert-body{flex:1;min-width:0}
+.alert-title{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px}
+.alert-meta{font-size:11px;color:var(--text-secondary);display:flex;flex-wrap:wrap;gap:8px}
+.alert-time{font-size:11px;color:var(--text-secondary);white-space:nowrap}
+.d-field.warn { background: rgba(230,162,60,0.06); border: 1px solid rgba(230,162,60,0.15); }
+
+.operator-box {
+  background: rgba(230,162,60,0.05); border: 1px solid rgba(230,162,60,0.2);
+  border-radius: 10px; padding: 12px;
+  display: flex; gap: 12px; align-items: center;
+}
+.operator-info { flex: 1; }
+.operator-info .oi-label { font-size: 10px; color: var(--orange); font-weight: 600; }
+.operator-info .oi-value { font-size: 12px; font-weight: 500; margin-top: 2px; word-break: break-all; }
+.qr-canvas { width: 80px; height: 80px; border-radius: 6px; border: 1px solid var(--border); background: white; }
+
+.trajectory-box {
+  background: var(--bg-input); border-radius: 10px; padding: 12px;
+}
+.traj-stats { display: flex; gap: 16px; margin-bottom: 8px; }
+.traj-stat { font-size: 11px; color: var(--text-secondary); }
+.traj-stat .tv { font-weight: 600; color: var(--text-primary); }
+.traj-map { width: 100%; height: 160px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); position: relative; }
+.traj-map-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: var(--text-secondary); font-size: 11px; z-index: 1; }
+
+.log-content {
+  background: var(--bg-input); border-radius: 8px; padding: 10px;
+  font-family: 'Courier New', monospace; font-size: 11px;
+  color: var(--text-secondary); max-height: 150px; overflow-y: auto; line-height: 1.8;
+}
+.log-line.info { color: var(--accent); }
+.log-line.success { color: var(--green); }
+.log-line.warn { color: var(--orange); }
+.log-line.error { color: var(--red); }
+
+.alert-banner {
+  display: none; padding: 10px 16px;
+  background: rgba(245,108,108,0.1); border: 1px solid rgba(245,108,108,0.3);
+  border-radius: 10px; margin-bottom: 12px; font-size: 13px; color: var(--red);
+  animation: alertPulse 1s infinite;
+}
+.alert-banner.show { display: flex; align-items: center; gap: 8px; }
+@keyframes alertPulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
+
+/* ============ 配对弹窗 ============ */
+.pair-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.55); z-index: 300;
+  justify-content: center; align-items: center;
+}
+.pair-overlay.show { display: flex; }
+.pair-box {
+  background: white; border-radius: 16px; padding: 28px 24px;
+  width: 85%; max-width: 320px; text-align: center;
+  animation: popIn 0.3s ease;
+}
+@keyframes popIn { from { transform: scale(0.8); opacity:0; } to { transform: scale(1); opacity:1; } }
+.pair-box h3 { font-size: 17px; margin-bottom: 6px; }
+.pair-box p { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
+.pair-input {
+  width: 100%; padding: 14px; font-size: 24px; font-weight: 700;
+  text-align: center; letter-spacing: 12px;
+  border: 2px solid var(--border); border-radius: 10px;
+  outline: none; transition: border-color 0.2s;
+}
+.pair-input:focus { border-color: var(--accent); }
+.pair-input.error { border-color: var(--red); animation: shake 0.3s; }
+@keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+.pair-btn {
+  width: 100%; padding: 13px; margin-top: 14px;
+  border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+  cursor: pointer; background: linear-gradient(135deg, #409eff, #337ecc); color: white;
+}
+.pair-btn:active { transform: scale(0.98); }
+.pair-hint { font-size: 11px; color: var(--text-secondary); margin-top: 10px; }
+
+/* ============ 导出按钮 + 品牌标签 ============ */
+.btn-export {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 14px; border: 1px solid var(--accent);
+  border-radius: 8px; font-size: 12px; font-weight: 500;
+  cursor: pointer; background: rgba(64,158,255,0.06); color: var(--accent);
+  transition: all 0.15s;
+}
+.btn-export:active { background: rgba(64,158,255,0.15); }
+.brand-tag {
+  display: inline-block; padding: 2px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 600; line-height: 1.4;
+}
+.brand-dji { background: rgba(0,0,0,0.06); color: #333; }
+.source-tag{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;margin-left:4px;line-height:1.4}
+.source-rid{background:rgba(64,158,255,0.12);color:#409eff}
+.source-dji{background:rgba(230,162,60,0.12);color:#e6a23c}
+.brand-autel { background: rgba(255,107,0,0.1); color: #e65c00; }
+.brand-fimi { background: rgba(0,120,255,0.1); color: #0070ff; }
+.brand-rid { background: rgba(16,185,129,0.12); color: #0d9066; }
+.brand-yuneec, .brand-parrot, .brand-skydio, .brand-飞马 { background: rgba(144,147,153,0.12); color: #606266; }
+.brand-unknown { background: rgba(0,0,0,0.04); color: #999; }
+
+/* ============ v2.3.0: 雷达视图 ============ */
+.radar-wrap { position: relative; width: 100%; display: flex; flex-direction:column; align-items:center; margin-bottom: 10px; gap:6px; }
+.radar-canvas { background: #0a1929; border-radius: 50%; display: block; box-shadow: inset 0 0 30px rgba(64,158,255,0.25), 0 0 18px rgba(64,158,255,0.35); cursor: crosshair; }
+.radar-tip { position: absolute; pointer-events: none; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px; padding: 5px 8px; border-radius: 6px; white-space: nowrap; z-index: 20; display: none; line-height: 1.5; border: 1px solid rgba(64,158,255,0.4); }
+.radar-tip.show { display: block; }
+.radar-status { font-size:11px; color:#e6a23c; background:rgba(230,162,60,0.12); padding:3px 10px; border-radius:10px; white-space:nowrap; }
+.radar-status.ok { color:#67c23a; background:rgba(103,194,58,0.12); }
+
+/* ============ v2.3.0: 历史记录 Tab ============ */
+.hist-list { max-height: 60vh; overflow-y: auto; }
+.hist-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--bg-input); border-radius: 8px; margin-bottom: 6px; font-size: 12px; }
+.hist-row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hist-sn { font-weight: 600; color: var(--text-primary); font-family: monospace; font-size: 11px; }
+.hist-meta { color: var(--text-secondary); font-size: 11px; display: flex; flex-wrap: wrap; gap: 10px; }
+.hist-meta b { color: var(--text-primary); font-weight: 600; }
+.hist-actions { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.hist-btn { padding: 5px 10px; border: 1px solid var(--border); background: #fff; border-radius: 6px; font-size: 11px; cursor: pointer; color: var(--text-primary); }
+.hist-btn:active { background: var(--bg-input); }
+.hist-btn.primary { background: rgba(64,158,255,0.1); border-color: var(--accent); color: var(--accent); }
+.hist-btn.danger { background: rgba(245,108,108,0.08); border-color: rgba(245,108,108,0.3); color: var(--red); }
+.hist-empty { text-align: center; color: var(--text-secondary); padding: 30px 0; font-size: 12px; }
+.hist-toolbar { display: flex; gap: 6px; align-items: center; }
+
+/* ============ v2.3.0: 轨迹回放弹窗 ============ */
+.track-replay-map { width: 100%; height: 280px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); position: relative; background: #e8e8e8; }
+.track-progress-wrap { margin-top: 10px; }
+.track-progress { width: 100%; height: 6px; -webkit-appearance: none; appearance: none; background: var(--bg-input); border-radius: 3px; outline: none; }
+.track-progress::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+.track-info { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; font-size: 11px; }
+.track-info .ti { background: var(--bg-input); padding: 6px 8px; border-radius: 6px; text-align: center; }
+.track-info .ti .l { color: var(--text-secondary); font-size: 10px; }
+.track-info .ti .v { font-weight: 600; color: var(--text-primary); margin-top: 2px; }
+.track-play-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.track-play-btn { flex: 0 0 auto; padding: 8px 18px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.track-time-label { font-size: 11px; color: var(--text-secondary); font-family: monospace; }
+
+/* ============ v2.3.0: 信道占用柱状图 ============ */
+.ch-bars { display: flex; align-items: flex-end; justify-content: space-between; gap: 3px; height: 110px; padding: 8px 4px 0; background: var(--bg-input); border-radius: 8px; position: relative; }
+.ch-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; cursor: pointer; }
+.ch-bar { width: 100%; max-width: 22px; min-height: 2px; border-radius: 3px 3px 0 0; transition: height 0.4s ease, background 0.3s; background: #dcdfe6; position: relative; }
+.ch-bar.hi { background: #409eff; }
+.ch-bar.mid { background: #a0cfff; }
+.ch-bar.lo { background: #c0c4cc; }
+.ch-num { font-size: 10px; color: var(--text-secondary); margin-top: 4px; }
+.ch-pkts { position: absolute; top: -14px; font-size: 9px; color: var(--text-secondary); white-space: nowrap; }
+.ch-tip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); color: #fff; font-size: 10px; padding: 3px 6px; border-radius: 4px; white-space: nowrap; display: none; z-index: 10; pointer-events: none; margin-bottom: 4px; }
+.ch-col:hover .ch-tip { display: block; }
+.ch-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ch-header .label { font-size: 11px; color: var(--text-secondary); }
+.ch-header .ch6-hint { font-size: 10px; color: var(--accent); }
+
+/* ============ v2.3.0: 导出按钮组 ============ */
+.export-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.export-row .btn-export { flex: 1; justify-content: center; padding: 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>🛰️ RID Station S3 蓝牙侦测</h1>
+    <span id="statusBadge" class="badge">未连接</span>
+  </div>
+  <div id="alertBanner" class="alert-banner">⚠️ <span id="alertText">围栏告警</span></div>
+
+  <div class="map-section">
+    <div id="map-container"></div>
+    <div id="mapFabLocate" onclick="locateMe()" title="定位到我的位置" style="position:absolute;left:10px;bottom:14px;width:28px;height:28px;background:#fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;z-index:200;user-select:none;-webkit-tap-highlight-color:transparent">🎯</div>
+    <div id="mapFabSat" onclick="toggleSatellite()" title="切换卫星图" style="position:absolute;left:10px;bottom:46px;width:28px;height:28px;background:#fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;cursor:pointer;z-index:200;user-select:none;color:#333;-webkit-tap-highlight-color:transparent">卫星</div>
+    <div class="map-overlay">
+      <div class="map-stat">目标: <span class="val" id="mapTargetCount">0</span></div>
+      <div class="map-stat" id="gpsStat" style="cursor:pointer" onclick="togglePhoneGps()" title="点击切换手机GPS定位">GPS: <span class="val">等待定位</span></div>
+      <div class="map-stat" id="rangeStat">半径: <span class="val">--</span></div>
+    </div>
+    <div class="map-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#409eff"></div> 侦测设备</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#67c23a"></div> 无人机</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#e6a23c"></div> 飞手位置</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('control',event)">📡 控制</button>
+    <button class="tab" onclick="switchTab('status',event)">📊 状态</button>
+    <button class="tab" onclick="switchTab('targets',event)">🎯 目标</button>
+    <button class="tab" onclick="switchTab('alerts',event)">🚨 预警<span id="alertBadge" class="alert-badge" style="display:none">0</span></button>
+    <button class="tab" onclick="switchTab('history',event)">📂 记录</button>
+    <button class="tab" onclick="switchTab('log',event)">📋 日志</button>
+  </div>
+
+  <!-- 控制 -->
+  <div id="tab-control" class="tab-content active">
+    <div class="card">
+      <h3>📶 蓝牙连接</h3>
+      <button id="bleConnectBtn" class="btn-connect" onclick="toggleConnect()" style="background:linear-gradient(135deg,#0d8b5f,#10b981);color:#fff;border:none">📡 蓝牙连接 S3 侦测站</button>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:8px;line-height:1.5">
+        手机/电脑通过蓝牙直连 RID Station S3（T-Display-S3），无需数据线、无需热点，侦测数据实时透传。<br>
+        <b>安卓 Chrome/Edge、电脑 Chrome/Edge</b> 均支持（需 HTTPS 或本地文件环境；iPhone Safari 不支持蓝牙网页，请用安卓）。
+      </div>
+      <div class="device-info"><div>设备: <span id="deviceName">--</span></div></div>
+    </div>
+
+    <!-- v2.2.12: 现场提醒设置 -->
+    <div class="card">
+      <h3>🔔 现场提醒</h3>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="chkSound" checked style="width:18px;height:18px;accent-color:#10b981;cursor:pointer">
+          <span>🔊 发现新目标/围栏告警时蜂鸣提示</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="chkVibrate" checked style="width:18px;height:18px;accent-color:#10b981;cursor:pointer">
+          <span>📳 手机震动提示（移动设备）</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px">
+          <input type="checkbox" id="chkWake" style="width:18px;height:18px;accent-color:#10b981;cursor:pointer" onchange="toggleWakeLock(this.checked)">
+          <span>☀️ 屏幕常亮（防止锁屏中断侦测）</span>
+        </label>
+        <div style="font-size:11px;color:var(--text-dim);line-height:1.5;padding-left:28px">
+          提示：声音和震动在首次蓝牙连接后由用户交互激活；屏幕常亮需浏览器支持 Wake Lock API。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态 -->
+  <div id="tab-status" class="tab-content">
+    <div class="card">
+      <h3>📊 运行状态</h3>
+      <div class="info-grid">
+        <div class="info-item"><div class="label">活跃目标</div><div class="value green" id="activeTargets">0</div></div>
+        <div class="info-item"><div class="label">固件版本</div><div class="value blue" id="firmwareVer">--</div></div>
+        <div class="info-item"><div class="label">GPS 状态</div><div class="value orange" id="gpsStatus">未定位</div></div>
+        <div class="info-item"><div class="label">运行时间</div><div class="value" id="uptime">00:00:00</div></div>
+        <div class="info-item"><div class="label">当前信道</div><div class="value" id="currentChannel">--</div></div>
+        <div class="info-item"><div class="label">侦测速率</div><div class="value" id="statPktRate">--</div></div>
+        <div class="info-item"><div class="label">空闲内存</div><div class="value" id="statFreeHeap">--</div></div>
+        <div class="info-item"><div class="label">累计包数</div><div class="value" id="statTotalPkts">--</div></div>
+      </div>
+    </div>
+
+    <!-- v2.3.0: 导出按钮 -->
+    <div class="card">
+      <h3>📥 数据导出</h3>
+      <div class="export-row">
+        <button class="btn-export" onclick="exportCSV()">📊 导出 CSV</button>
+        <button class="btn-export" onclick="exportKML()">🗺️ 导出 KML</button>
+        <button class="btn-export" onclick="exportReport()" style="background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);color:#f59e0b">📄 执法报告</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
+        导出当前在线目标的完整数据。KML 使用 GCJ-02 坐标（在高德地图/Google Earth 中国区显示无偏移）。
+      </div>
+    </div>
+
+    <!-- v2.3.0: 信道占用柱状图 -->
+    <div class="card">
+      <div class="ch-header">
+        <h3 style="margin:0">📡 信道占用</h3>
+        <span class="ch6-hint">蓝色=CH6（固件加权驻留）</span>
+      </div>
+      <div class="ch-bars" id="channelBars"></div>
+      <div style="text-align:center;font-size:10px;color:var(--text-secondary);margin-top:6px">最近 10 秒 · 每 10 秒重置</div>
+    </div>
+  </div>
+
+  <!-- 目标 -->
+  <div id="tab-targets" class="tab-content">
+    <!-- v2.3.0: 雷达视图 -->
+    <div class="card">
+      <h3>🛰️ 空域雷达</h3>
+      <div class="radar-wrap" id="radarWrap">
+        <canvas id="radarCanvas" class="radar-canvas"></canvas>
+        <div class="radar-tip" id="radarTip"></div>
+        <div class="radar-status" id="radarStatus">等待信号...</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        🎯 目标列表 (<span id="targetListCount">0</span>)
+      </h3>
+      <div class="target-list" id="targetListContainer">
+        <div class="target-item" style="color:var(--text-secondary);justify-content:center">等待设备连接...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 历史预警 -->
+  <div id="tab-alerts" class="tab-content">
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        🚨 历史预警 (<span id="alertHistoryCount">0</span>)
+        <span style="display:flex;gap:6px">
+          <button class="btn-export" onclick="exportAlertsCSV()">📥 导出</button>
+          <button class="btn-export" onclick="clearAlertHistory()" style="background:rgba(245,108,108,0.12);color:#f56c6c">🗑 清空</button>
+        </span>
+      </h3>
+      <div class="target-list" id="alertHistoryList" style="max-height:60vh;overflow-y:auto">
+        <div class="target-item" style="color:var(--text-secondary);justify-content:center">暂无预警记录</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- v2.3.0: 历史记录 -->
+  <div id="tab-history" class="tab-content">
+    <div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        📂 历史轨迹记录 (<span id="histCount">0</span>)
+        <span class="hist-toolbar">
+          <button class="btn-export" onclick="exportAllHistoryKML()">📥 全部KML</button>
+          <button class="btn-export" onclick="clearAllHistory()" style="background:rgba(245,108,108,0.12);color:#f56c6c">🗑 清空</button>
+        </span>
+      </h3>
+      <div class="hist-list" id="historyList">
+        <div class="hist-empty">暂无历史记录<br><span style="font-size:10px">目标超时时自动保存轨迹数据</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志 -->
+  <div id="tab-log" class="tab-content">
+    <div class="card">
+      <h3>📋 通信日志</h3>
+      <div class="log-content" id="logContent">
+        <div class="log-line info">[系统] RID Station S3 蓝牙监控页面已加载，请点击「蓝牙连接 S3 侦测站」</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="detail-overlay" id="detailOverlay" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-panel">
+    <div class="detail-top">
+      <div class="detail-top-left">
+        <h3 id="detailTitle">无人机详情</h3>
+        <p id="detailSubtitle">UAS ID / SN</p>
+      </div>
+      <button class="detail-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- v2.3.0: 轨迹回放弹窗（独立 overlay） -->
+<div class="detail-overlay" id="trackReplayOverlay" onclick="if(event.target===this)closeTrackReplay()">
+  <div class="detail-panel">
+    <div class="detail-top">
+      <div class="detail-top-left">
+        <h3 id="trackReplayTitle">🗺️ 历史轨迹回放</h3>
+        <p id="trackReplaySubtitle">SN</p>
+      </div>
+      <button class="detail-close" onclick="closeTrackReplay()">✕</button>
+    </div>
+    <div class="detail-body">
+      <div class="track-replay-map" id="trackReplayMap"><div class="traj-map-loading">加载地图...</div></div>
+      <div class="track-info">
+        <div class="ti"><div class="l">时间</div><div class="v" id="trkTime">--</div></div>
+        <div class="ti"><div class="l">高度</div><div class="v" id="trkAlt">--</div></div>
+        <div class="ti"><div class="l">速度</div><div class="v" id="trkSpeed">--</div></div>
+      </div>
+      <div class="track-progress-wrap">
+        <input type="range" class="track-progress" id="trkProgress" min="0" max="100" value="0" step="0.1">
+      </div>
+      <div class="track-play-row">
+        <button class="track-play-btn" id="trkPlayBtn" onclick="toggleTrackPlay()">▶ 播放</button>
+        <span class="track-time-label" id="trkTimeLabel">00:00 / 00:00</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 配对弹窗 -->
+<div class="pair-overlay" id="pairOverlay">
+  <div class="pair-box">
+    <h3>🔐 配对确认</h3>
+    <p>请输入设备上显示的 4 位配对码</p>
+    <input type="text" class="pair-input" id="pairInput" maxlength="4" placeholder="·····" inputmode="numeric" pattern="[0-9]*">
+    <button class="pair-btn" onclick="submitPair()">确认配对</button>
+    <div class="pair-hint">配对码显示在 RID Station S3 屏幕上<br>如不确定请联系设备操作员</div>
+  </div>
+</div>
+
+<script>
+// ============ WGS-84 → GCJ-02 ============
+const PI=Math.PI, A=6378245.0, EE=0.00669342162296594323;
+function outOfChina(lng,lat){return!(lng>73.66&&lng<135.05&&lat>3.86&&lat<53.55)}
+function tLat(x,y){let r=-100+2*x+3*y+.2*y*y+.1*x*y+.2*Math.sqrt(Math.abs(x));r+=(20*Math.sin(6*x*PI)+20*Math.sin(2*x*PI))*2/3;r+=(20*Math.sin(y*PI)+40*Math.sin(y/3*PI))*2/3;r+=(160*Math.sin(y/12*PI)+320*Math.sin(y*PI/30))*2/3;return r}
+function tLng(x,y){let r=300+x+2*y+.1*x*x+.1*x*y+.1*Math.sqrt(Math.abs(x));r+=(20*Math.sin(6*x*PI)+20*Math.sin(2*x*PI))*2/3;r+=(20*Math.sin(x*PI)+40*Math.sin(x/3*PI))*2/3;r+=(150*Math.sin(x/12*PI)+300*Math.sin(x/30*PI))*2/3;return r}
+function wgs84ToGcj02(lng,lat){
+  if(outOfChina(lng,lat))return[lng,lat];
+  let dLat=tLat(lng-105,lat-35),dLng=tLng(lng-105,lat-35);
+  const rLat=lat/180*PI;let m=Math.sin(rLat);m=1-EE*m*m;
+  const sm=Math.sqrt(m);
+  dLat=(dLat*180)/((A*(1-EE))/(m*sm)*PI);
+  dLng=(dLng*180)/(A/sm*Math.cos(rLat)*PI);
+  return[lng+dLng,lat+dLat];
+}
+
+// ============ SN 前缀 → 品牌/型号映射 ============
+// v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
+const SN_BRAND_MAP = [
+  // === DJI 消费级（1581F 前缀，来自 DroneScanner scanner.ino DJI_Model 表）===
+  { prefix:'1581F8LQ', brand:'DJI', model:'Mavic 4 Pro',     cls:'brand-dji' },
+  { prefix:'1581F67Q', brand:'DJI', model:'Mavic 3 Pro',     cls:'brand-dji' },
+  { prefix:'1581F5Y8', brand:'DJI', model:'Mavic 3 Classic', cls:'brand-dji' },
+  { prefix:'1581F45Q', brand:'DJI', model:'Mavic 3',         cls:'brand-dji' },
+  { prefix:'1581F45T', brand:'DJI', model:'Mavic 3',         cls:'brand-dji' },
+  { prefix:'1581F895', brand:'DJI', model:'Air 3S',          cls:'brand-dji' },
+  { prefix:'1581F6N8', brand:'DJI', model:'Air 3',           cls:'brand-dji' },
+  { prefix:'1581F385', brand:'DJI', model:'Air 2S',          cls:'brand-dji' },
+  { prefix:'1581FANL', brand:'DJI', model:'Mini 5 Pro',      cls:'brand-dji' },
+  { prefix:'1581F9DE', brand:'DJI', model:'Mini 5 Pro',      cls:'brand-dji' },
+  { prefix:'1581F5QJ', brand:'DJI', model:'Mini 4 Pro',      cls:'brand-dji' },
+  { prefix:'1581F6Z9', brand:'DJI', model:'Mini 4 Pro',      cls:'brand-dji' },
+  { prefix:'1581F8C8', brand:'DJI', model:'Mini 4K',         cls:'brand-dji' },
+  { prefix:'1581F4XF', brand:'DJI', model:'Mini 3 Pro',      cls:'brand-dji' },
+  { prefix:'1581F6CD', brand:'DJI', model:'Mini 2 SE',       cls:'brand-dji' },
+  { prefix:'1581F5YH', brand:'DJI', model:'Mini 3',          cls:'brand-dji' },
+  { prefix:'1581FBV5', brand:'DJI', model:'Lito 1',          cls:'brand-dji' },
+  { prefix:'1581FB34', brand:'DJI', model:'Lito X1',         cls:'brand-dji' },
+  { prefix:'1581FA8J', brand:'DJI', model:'Avata 360',       cls:'brand-dji' },
+  // === DJI FPV/穿越机 ===
+  { prefix:'1581F6W8', brand:'DJI', model:'Avata 2',         cls:'brand-dji' },
+  { prefix:'1581F4CQ', brand:'DJI', model:'Avata',           cls:'brand-dji' },
+  { prefix:'1581F4QW', brand:'DJI', model:'Avata',           cls:'brand-dji' },
+  { prefix:'1581FA6Q', brand:'DJI', model:'Neo 2',           cls:'brand-dji' },
+  { prefix:'1581F8A1', brand:'DJI', model:'Neo',             cls:'brand-dji' },
+  { prefix:'1581F87L', brand:'DJI', model:'Neo',             cls:'brand-dji' },
+  { prefix:'1581F3CQ', brand:'DJI', model:'DJI FPV',         cls:'brand-dji' },
+  { prefix:'1581F7V2', brand:'DJI', model:'DJI Flip',        cls:'brand-dji' },
+  // === DJI 行业级 ===
+  { prefix:'1581F6H8', brand:'DJI', model:'Matrice 350 RTK', cls:'brand-dji' },
+  { prefix:'1581F5BK', brand:'DJI', model:'Matrice 30',      cls:'brand-dji' },
+  { prefix:'1581F5BM', brand:'DJI', model:'Matrice 30T',     cls:'brand-dji' },
+  { prefix:'1581F52Q', brand:'DJI', model:'Mavic 3E/3T',     cls:'brand-dji' },
+  { prefix:'1581F5FH', brand:'DJI', model:'Mavic 3E/3T',     cls:'brand-dji' },
+  { prefix:'1581F5FJ', brand:'DJI', model:'Mavic 3M',        cls:'brand-dji' },
+  { prefix:'1581F578', brand:'DJI', model:'Inspire 3',       cls:'brand-dji' },
+  { prefix:'1581F4Z4', brand:'DJI', model:'Inspire 3',       cls:'brand-dji' },
+  { prefix:'1581F6GK', brand:'DJI', model:'Matrice 300',     cls:'brand-dji' },
+  { prefix:'1581F6Q8', brand:'DJI', model:'Matrice 3D',      cls:'brand-dji' },
+  { prefix:'1581F6QA', brand:'DJI', model:'Matrice 3TD',     cls:'brand-dji' },
+  { prefix:'1581F9HE', brand:'DJI', model:'Matrice 4T/4E',   cls:'brand-dji' },
+  { prefix:'1581F7K3', brand:'DJI', model:'Matrice 4T/4E',   cls:'brand-dji' },
+  { prefix:'1581F8HH', brand:'DJI', model:'Matrice 4D/TD',   cls:'brand-dji' },
+  { prefix:'1581F8HG', brand:'DJI', model:'Matrice 4D/TD',   cls:'brand-dji' },
+  { prefix:'1581F8DB', brand:'DJI', model:'Matrice 400',     cls:'brand-dji' },
+  { prefix:'1581F986', brand:'DJI', model:'Mavic 4 Series',  cls:'brand-dji' },
+  { prefix:'1581FAN4', brand:'DJI', model:'FlyCart 100',     cls:'brand-dji' },
+  // === 其他品牌 1581F 前缀 ===
+  { prefix:'1748FEV3', brand:'Autel', model:'EVO MAX',        cls:'brand-autel' },
+  // === 国标 RID 设备（GB42590/GB46750 合规广播，含公安肩灯等）===
+  // 国标序列号通常为 20 位十六进制，前缀多为制造商标识。以下为已知设备前缀。
+  { prefix:'2051FE',   brand:'国标RID', model:'电子识别设备(肩灯)', cls:'brand-rid' },
+  // === 历史前缀（早期 RID 肩灯/旧固件格式）===
+  { prefix:'4TADLBS', brand:'DJI',     model:'Mini 4 Pro',   cls:'brand-dji' },
+  { prefix:'4TADLKR', brand:'DJI',     model:'Air 3',        cls:'brand-dji' },
+  { prefix:'8UUXNXX', brand:'DJI',     model:'Matrice 30T',  cls:'brand-dji' },
+  { prefix:'4TADCKR', brand:'DJI',     model:'Mavic 3',      cls:'brand-dji' },
+  { prefix:'89XHEAX', brand:'Autel',   model:'EVO II',       cls:'brand-autel' },
+  { prefix:'4TADMJR', brand:'DJI',     model:'Mini 3 Pro',   cls:'brand-dji' },
+  { prefix:'3IXDJIA', brand:'DJI',     model:'Air 2S',       cls:'brand-dji' },
+  { prefix:'4TADLMT', brand:'DJI',     model:'Mavic 3 Pro',  cls:'brand-dji' },
+  { prefix:'6AXFLYB', brand:'FIMI',    model:'X8 SE',        cls:'brand-fimi' },
+  { prefix:'4TADLNE', brand:'DJI',     model:'Mini 2',       cls:'brand-dji' },
+  { prefix:'8UUHGTS', brand:'DJI',     model:'Matrice 30',   cls:'brand-dji' },
+  { prefix:'4TADMVS', brand:'DJI',     model:'Mavic Air 2',  cls:'brand-dji' },
+];
+// ============ MAC OUI 厂商表（SN 无法识别时兜底） ============
+// 来源：IEEE MA-L 公开注册 + 公开无人机 MAC 样本。仅含已知会发 RID 的设备厂商。
+// 注意：很多 RID 设备使用随机 MAC（locally administered bit=1），此时 OUI 无意义。
+const MAC_OUI_MAP = [
+  // SZ DJI Technology Co., Ltd
+  { oui:'60:60:1F', brand:'DJI' }, { oui:'34:D0:7F', brand:'DJI' },
+  { oui:'A0:14:3D', brand:'DJI' }, { oui:'A8:3B:76', brand:'DJI' },
+  { oui:'1C:9D:C2', brand:'DJI' }, { oui:'18:4F:32', brand:'DJI' },
+  { oui:'10:8C:CF', brand:'DJI' }, { oui:'18:7A:93', brand:'DJI' },
+  { oui:'40:62:32', brand:'DJI' }, { oui:'48:1C:B9', brand:'DJI' },
+  { oui:'58:10:7C', brand:'DJI' }, { oui:'60:3B:16', brand:'DJI' },
+  { oui:'64:69:4E', brand:'DJI' }, { oui:'78:11:DC', brand:'DJI' },
+  { oui:'80:30:40', brand:'DJI' }, { oui:'84:4B:F5', brand:'DJI' },
+  { oui:'8C:85:2E', brand:'DJI' }, { oui:'90:3A:72', brand:'DJI' },
+  { oui:'98:6E:EC', brand:'DJI' }, { oui:'B0:1C:B7', brand:'DJI' },
+  { oui:'C0:28:8D', brand:'DJI' }, { oui:'C8:47:80', brand:'DJI' },
+  { oui:'CC:50:E3', brand:'DJI' }, { oui:'D8:4A:25', brand:'DJI' },
+  { oui:'DC:04:82', brand:'DJI' }, { oui:'E0:1C:14', brand:'DJI' },
+  { oui:'E4:3A:6E', brand:'DJI' }, { oui:'EC:78:32', brand:'DJI' },
+  { oui:'F0:45:32', brand:'DJI' }, { oui:'F8:1B:67', brand:'DJI' },
+  { oui:'FC:65:DE', brand:'DJI' },
+  // Autel Robotics
+  { oui:'00:0E:8E', brand:'Autel' }, { oui:'70:B6:D5', brand:'Autel' },
+  { oui:'A8:1B:6A', brand:'Autel' }, { oui:'C4:4F:33', brand:'Autel' },
+  // Yuneec
+  { oui:'00:18:C8', brand:'Yuneec' }, { oui:'00:26:7D', brand:'Yuneec' },
+  { oui:'60:3A:7C', brand:'Yuneec' },
+  // Parrot
+  { oui:'00:12:1C', brand:'Parrot' }, { oui:'90:3A:72', brand:'Parrot' },
+  { oui:'A0:14:3D', brand:'Parrot' }, { oui:'00:26:7D', brand:'Parrot' },
+  // Skydio
+  { oui:'B8:27:EB', brand:'Skydio' }, { oui:'DC:A6:32', brand:'Skydio' },
+  // FIMI
+  { oui:'64:69:4E', brand:'FIMI' },
+  // 飞马机器人 / JOUAV
+  { oui:'00:12:1C', brand:'飞马' },
+];
+function lookupMAC(mac) {
+  if(!mac || mac.length < 8) return null;
+  const norm = mac.toUpperCase();
+  // 检查随机 MAC：第一字节第二个十六进制位为 2/6/A/E 表示 locally administered
+  const firstByte = parseInt(norm.substring(0,2), 16);
+  if(!isNaN(firstByte) && (firstByte & 0x02)) return null;
+  const prefix = norm.substring(0,8);
+  for(const e of MAC_OUI_MAP) {
+    if(prefix === e.oui) return { brand: e.brand, model:'(MAC识别)', cls:'brand-'+e.brand.toLowerCase() };
+  }
+  return null;
+}
+
+function lookupSN(sn, mac) {
+  if(sn) {
+    for(const e of SN_BRAND_MAP) {
+      if(sn.startsWith(e.prefix)) return e;
+    }
+    // DJI 通用前缀兜底
+    if(sn.startsWith('4TAD') || sn.startsWith('8UU')) return { brand:'DJI', model:'(通用)', cls:'brand-dji' };
+    if(sn.startsWith('89XH')) return { brand:'Autel', model:'(通用)', cls:'brand-autel' };
+    if(sn.startsWith('6AXF')) return { brand:'FIMI', model:'(通用)', cls:'brand-fimi' };
+    // 国标 RID 设备兜底：纯 16 位以上十六进制 SN（非 DJI 自定义格式）
+    if(/^[0-9A-Fa-f]{16,}$/.test(sn)) return { brand:'国标RID', model:'合规设备', cls:'brand-rid' };
+  }
+  // SN 识别失败时尝试 MAC OUI
+  if(mac) {
+    const macInfo = lookupMAC(mac);
+    if(macInfo) return macInfo;
+  }
+  return { brand:'未知', model:'', cls:'brand-unknown' };
+}
+function brandTag(sn, mac) {
+  const info = lookupSN(sn, mac);
+  const text = info.model ? `${info.brand} ${info.model}` : info.brand;
+  return `<span class="brand-tag ${info.cls}">${text}</span>`;
+}
+
+// ============ QR Code 生成器（轻量内嵌） ============
+// 使用 Canvas 绘制简易 QR Code（基于 QR Server API 作为降级方案）
+function generateQR(canvas, data, size) {
+  const ctx = canvas.getContext('2d');
+  canvas.width = size * 2; canvas.height = size * 2;
+  ctx.scale(2, 2);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, size, size);
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => ctx.drawImage(img, 0, 0, size, size);
+  img.onerror = () => {
+    // 降级：显示坐标文字
+    ctx.fillStyle = '#333';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'center';
+    const lines = data.match(/.{1,10}/g) || [data];
+    lines.slice(0, 5).forEach((line, i) => ctx.fillText(line, size/2, 18 + i * 10));
+  };
+  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${size*2}x${size*2}&data=${encodeURIComponent(data)}&margin=2&color=1a1a2e`;
+}
+
+// ============ UA Type 中文映射（ASTM F3411 / GB42590） ============
+const UA_TYPE_CN = {
+  'none':'未声明',
+  'aeroplane':'固定翼',
+  'helicopter_or_multirotor':'多旋翼/直升机',
+  'gyroplane':'自转旋翼机',
+  'hybrid_lift':'复合翼',
+  'ornithopter':'扑翼机',
+  'glider':'滑翔机',
+  'kite':'风筝',
+  'free_balloon':'自由气球',
+  'captive_balloon':'系留气球',
+  'airship':'飞艇',
+  'free_fall_parachute':'自由落体降落伞',
+  'rocket':'火箭',
+  'tethered_powered':'系留动力飞行器',
+  'ground_obstacle':'地面障碍物',
+  'other':'其他'
+};
+function uaTypeCN(t) {
+  if(t === undefined || t === null || t === '') return '未知';
+  if(typeof t === 'number') {
+    // 数值型（ODID_UATYPE_*），1=Aeroplane,2=Helicopter/Multirotor,...
+    const arr = ['none','aeroplane','helicopter_or_multirotor','gyroplane','hybrid_lift',
+      'ornithopter','glider','kite','free_balloon','captive_balloon','airship',
+      'free_fall_parachute','rocket','tethered_powered','ground_obstacle','other'];
+    return UA_TYPE_CN[arr[t]] || ('类型'+t);
+  }
+  const k = String(t).toLowerCase();
+  return UA_TYPE_CN[k] || t;
+}
+
+// ============ 数据存储 ============
+const droneData = {}; // id -> { wgs_lat, wgs_lon, gcj_lat, gcj_lon, alt, speed, heading, sn, op_lat, op_lon, ua_type, history[] }
+
+// ============ 地图 ============
+let map=null, droneMarkers={}, droneTrails={}, centerMarker=null, operatorMarkers={}, satelliteLayer=null, roadNetLayer=null, isSatellite=false;
+let accuracyCircle=null;  // GPS精度圆圈
+
+// v2.2.16: 侦测设备自身 WGS-84 坐标（用于方位/距离计算和连线）
+let selfWgsLat=null, selfWgsLon=null, selfGpsValid=false;
+let phoneGpsOn=false, phoneGpsWatchId=null, phoneGpsAccuracy=null;
+let boardGpsValid=false, boardGpsLat=null, boardGpsLon=null;  // 板子GPS（如果有则优先）
+const GPS_SRC_BOARD='板子', GPS_SRC_PHONE='手机', GPS_SRC_NONE='无';
+function gpsSource(){ return boardGpsValid?GPS_SRC_BOARD:(phoneGpsOn&&selfGpsValid?GPS_SRC_PHONE:GPS_SRC_NONE); }
+
+function togglePhoneGps(){
+  if(!navigator.geolocation){ addLog('warn','[GPS] 浏览器不支持定位'); return; }
+  if(phoneGpsOn){
+    navigator.geolocation.clearWatch(phoneGpsWatchId);
+    phoneGpsOn=false; phoneGpsWatchId=null;
+    // 如果板子也没定位，清空自身位置
+    if(!boardGpsValid){ selfWgsLat=null; selfWgsLon=null; selfGpsValid=false; }
+    else { selfWgsLat=boardGpsLat; selfWgsLon=boardGpsLon; selfGpsValid=true; }
+    updateGpsStat();
+    addLog('info','[GPS] 手机定位已关闭');
+    return;
+  }
+  addLog('info','[GPS] 正在请求手机定位...');
+  phoneGpsOn=true;
+  phoneGpsWatchId = navigator.geolocation.watchPosition(
+    (pos)=>{
+      const lat=pos.coords.latitude, lon=pos.coords.longitude;
+      phoneGpsAccuracy = pos.coords.accuracy;
+      // 板子GPS优先，手机GPS作为备用
+      if(!boardGpsValid){
+        const sm0=gpsSmoothPush(lat,lon);
+        selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
+        updateSelfMarker();
+        updateGpsStat();
+      }
+      addLog('success',`[GPS] 手机定位: ${lat.toFixed(6)},${lon.toFixed(6)} 精度±${Math.round(pos.coords.accuracy)}m`);
+    },
+    (err)=>{
+      phoneGpsOn=false;
+      const msg = err.code===1?'用户拒绝定位权限':(err.code===2?'定位不可用':(err.code===3?'定位超时':err.message));
+      addLog('error',`[GPS] 手机定位失败: ${msg}`);
+      updateGpsStat();
+    },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
+  );
+  updateGpsStat();
+}
+
+function updateGpsStat(){
+  const el = document.getElementById('gpsStat');
+  if(!el) return;
+  const src = gpsSource();
+  if(src===GPS_SRC_NONE){
+    el.innerHTML = 'GPS: <span class="val" style="color:var(--text-dim)">点击开启</span>';
+    el.style.opacity='0.7';
+  } else if(src===GPS_SRC_BOARD){
+    el.innerHTML = '📡 板子GPS';
+    el.style.opacity='1';
+  } else {
+    const acc = phoneGpsAccuracy?` ±${Math.round(phoneGpsAccuracy)}m`:'';
+    el.innerHTML = `📱 手机GPS${acc}`;
+    el.style.opacity='1';
+  }
+}
+
+function updateSelfMarker(){
+  if(!map || !centerMarker || !selfGpsValid || selfWgsLat===null) return;
+  try {
+    const [gcjLng,gcjLat]=wgs84ToGcj02(selfWgsLon, selfWgsLat);
+    const src=gpsSource();
+    const color = src===GPS_SRC_BOARD?'#409eff':'#10b981';
+    const label = src===GPS_SRC_BOARD?'侦测设备':'我的位置';
+    map.remove(centerMarker);
+    centerMarker = new AMap.Marker({
+      position:[gcjLng,gcjLat],
+      content:`<div style="position:relative"><div style="width:18px;height:18px;background:${color};border:3px solid white;border-radius:50%;box-shadow:0 0 10px ${color}99"></div><div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;background:${color}e6;color:white;padding:1px 6px;border-radius:4px">${label}</div></div>`,
+      offset: new AMap.Pixel(-9,-9)
+    });
+    map.add(centerMarker);
+    centerMarker.show();
+  } catch(e){ console.warn('updateSelfMarker',e); }
+}
+// v2.2.16: 自己→无人机连线
+let selfToDroneLines={};
+
+// v2.2.17: 统一清理目标（marker/气泡/连线/数据/弹窗），避免超时后 UI 残留
+function removeTarget(id){
+  if(droneMarkers[id]){
+    if(_infoWindow){ try{ _infoWindow.close(); }catch(e){} }
+    if(droneMarkers[id]._trailLine){ try{ map.remove(droneMarkers[id]._trailLine); }catch(e){} }
+    if(droneMarkers[id]._opLine){ try{ map.remove(droneMarkers[id]._opLine); }catch(e){} }
+    try{ map.remove(droneMarkers[id]); }catch(e){}
+    delete droneMarkers[id];
+  }
+  if(operatorMarkers[id]){ try{ map.remove(operatorMarkers[id]); }catch(e){} delete operatorMarkers[id]; }
+  delete droneTrails[id];
+  if(selfToDroneLines[id]){ try{ map.remove(selfToDroneLines[id]); }catch(e){} delete selfToDroneLines[id]; }
+  // 如果详情弹窗正显示该目标，关闭
+  const ov = document.getElementById('detailOverlay');
+  if(ov && ov.classList.contains('show')){
+    const tt = document.getElementById('detailTitle');
+    if(tt && tt.textContent.indexOf(id) !== -1){ closeDetail(); }
+  }
+  _alertedDelete(id);
+  // v2.3.0: 目标消失前持久化轨迹到 IndexedDB（不阻塞删除流程）
+  try { saveTrackToHistory(id); } catch(e) { console.warn('[history] save failed', e); }
+  delete droneData[id];
+}
+
+// ============ GPS 滑动窗口平滑滤波 ============
+const GPS_WINDOW_SIZE = 5;  // 取最近5次(约15秒)坐标平均
+const gpsWindow = [];       // [{lat, lon, t}]
+function gpsSmoothPush(lat, lon) {
+  const now = Date.now();
+  gpsWindow.push({lat, lon, t: now});
+  // 只保留最近30秒内的数据
+  while(gpsWindow.length > GPS_WINDOW_SIZE || (gpsWindow.length>0 && now-gpsWindow[0].t>30000)) {
+    gpsWindow.shift();
+  }
+  if(gpsWindow.length===0) return {lat, lon, count:1, spread:0};
+  let sLat=0, sLon=0;
+  gpsWindow.forEach(p=>{sLat+=p.lat;sLon+=p.lon;});
+  const avgLat=sLat/gpsWindow.length, avgLon=sLon/gpsWindow.length;
+  // 计算离散度(米)，用于精度圆圈
+  let spread=0;
+  if(gpsWindow.length>=2){
+    gpsWindow.forEach(p=>{
+      const d=calcDistanceM(p.lat,p.lon,avgLat,avgLon);
+      if(d>spread) spread=d;
+    });
+  }
+  return {lat:avgLat, lon:avgLon, count:gpsWindow.length, spread};
+}
+
+// ============ v2.6.8: 统一处理板子GPS UI更新 ============
+// 被 SELF_GPS: 文本行 和 status JSON 内嵌 gps_* 字段两条通道共同调用
+function updateBoardGpsUI(lat, lon, alt, sats, hdop, valid) {
+  if(valid){
+    boardGpsValid=true; boardGpsLat=lat; boardGpsLon=lon;
+    const sm0=gpsSmoothPush(lat,lon);
+    selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
+  } else {
+    boardGpsValid=false; boardGpsLat=null; boardGpsLon=null;
+    if(phoneGpsOn && selfGpsValid){
+      // 手机GPS在用，保持
+    } else {
+      selfWgsLat=null; selfWgsLon=null; selfGpsValid=false;
+    }
+  }
+  updateGpsStat();
+  if(valid && map && centerMarker){
+    const sm = gpsWindow.length ? {lat:selfWgsLat, lon:selfWgsLon, spread: (function(){
+      let mx=0; gpsWindow.forEach(p=>{const d=calcDistanceM(p.lat,p.lon,selfWgsLat,selfWgsLon);if(d>mx)mx=d;});return mx;
+    })()} : {lat,lon,spread:0};
+    const [gcjLng,gcjLat]=wgs84ToGcj02(sm.lon,sm.lat);
+    const isFirstGps = !centerMarker._selfGps;
+    centerMarker._selfGps = true;
+    map.remove(centerMarker);
+    centerMarker = new AMap.Marker({
+      position:[gcjLng,gcjLat],
+      content:`<div style="position:relative"><div style="width:18px;height:18px;background:#409eff;border:3px solid white;border-radius:50%;box-shadow:0 0 10px rgba(64,158,255,0.6)"></div><div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;background:rgba(64,158,255,0.9);color:white;padding:1px 6px;border-radius:4px">侦测设备</div></div>`,
+      offset: new AMap.Pixel(-9,-9)
+    });
+    map.add(centerMarker);
+    centerMarker.show();
+    const hdopRadius = hdop>0 ? hdop*5 : 0;
+    const circleRadius = Math.max(hdopRadius, sm.spread, 15);
+    if(accuracyCircle) map.remove(accuracyCircle);
+    accuracyCircle = new AMap.Circle({
+      center:[gcjLng,gcjLat], radius: circleRadius,
+      strokeColor:'#409eff', strokeWeight:1, strokeOpacity:0.6,
+      fillColor:'#409eff', fillOpacity:0.08, strokeStyle:'dashed'
+    });
+    map.add(accuracyCircle);
+    if(isFirstGps) map.setCenter([gcjLng,gcjLat]);
+    const hdopStr = hdop>0 ? ` HDOP:${hdop.toFixed(1)}` : '';
+    const qualityStr = hdop>0 ? (hdop<1.5?'优秀':hdop<3?'良好':hdop<5?'一般':'较差') : '';
+    const _gs=document.getElementById('gpsStat');
+    if(_gs) _gs.innerHTML=`📡 板子GPS ${sats}星${hdopStr} ±${circleRadius.toFixed(0)}m`;
+    const _gst=document.getElementById('gpsStatus');
+    if(_gst){ _gst.innerHTML = sats+'星'+(qualityStr?` <span style="color:${hdop<2?'#67c23a':hdop<4?'#e6a23c':'#f56c6c'}">${qualityStr}</span>`:'定位'); _gst.className='value green'; }
+    Object.keys(droneData).forEach(tid => updateSelfToDroneLine(tid));
+  } else if(!valid) {
+    const _gs2=document.getElementById('gpsStat');
+    if(_gs2 && boardGpsValid===false && !phoneGpsOn) _gs2.innerHTML='GPS: <span class="val" style="color:var(--orange)">搜索中 ('+sats+'星)</span>';
+    const _gst2=document.getElementById('gpsStatus');
+    if(_gst2){ _gst2.textContent=sats>0?sats+'星(未定位)':'未定位'; _gst2.className='value orange'; }
+    Object.keys(selfToDroneLines).forEach(tid=>{
+      if(selfToDroneLines[tid]){ map && map.remove(selfToDroneLines[tid]); selfToDroneLines[tid]=null; }
+    });
+  }
+}
+
+// 两点距离(米)，Haversine 简化版
+function calcDistanceM(lat1,lon1,lat2,lon2){
+  const R=6371000, toRad=Math.PI/180;
+  const dLat=(lat2-lat1)*toRad, dLon=(lon2-lon1)*toRad;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+// v2.2.16: RSSI 历史（每个目标最多60个采样点，约5分钟数据，用于详情趋势曲线）
+const RSSI_HISTORY_MAX = 60;
+function pushRssiHistory(id, rssi){
+  if(rssi === undefined || rssi === null || isNaN(rssi)) return;
+  if(!droneData[id]) return;
+  if(!droneData[id]._rssiHist) droneData[id]._rssiHist = [];
+  const now = Date.now();
+  const last = droneData[id]._rssiHist.length ? droneData[id]._rssiHist[droneData[id]._rssiHist.length-1] : null;
+  if(last && last.r === rssi && now - last.t < 5000) return;
+  droneData[id]._rssiHist.push({t:now, r:rssi});
+  if(droneData[id]._rssiHist.length > RSSI_HISTORY_MAX) droneData[id]._rssiHist.shift();
+}
+
+// v2.2.16: 方位角（起点→终点，正北为0，顺时针0-360）
+function calcBearing(lat1,lon1,lat2,lon2){
+  const toRad=Math.PI/180;
+  const φ1=lat1*toRad, φ2=lat2*toRad, λ1=lon1*toRad, λ2=lon2*toRad;
+  const y=Math.sin(λ2-λ1)*Math.cos(φ2);
+  const x=Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(λ2-λ1);
+  let θ=Math.atan2(y,x)*180/Math.PI;
+  return (θ+360)%360;
+}
+const BEARING_CN=['北','北偏东','东北','东偏北','东','东偏南','东南','南偏东','南','南偏西','西南','西偏南','西','西偏北','西北','北偏西'];
+function bearingToCN(b){
+  if(b===null||b===undefined||isNaN(b)) return '--';
+  return BEARING_CN[Math.round(b/22.5)%16];
+}
+
+// v2.2.16: 更新自己→目标连线（地图橙色虚线）
+function updateSelfToDroneLine(id){
+  if(!map) return;
+  const d = droneData[id];
+  if(!d) return;
+  if(selfToDroneLines[id]){
+    map.remove(selfToDroneLines[id]);
+    selfToDroneLines[id] = null;
+  }
+  if(!selfGpsValid || selfWgsLat===null || !d.wgs_lat || d._noLoc
+     || (d.wgs_lat===0 && d.wgs_lon===0)) return;
+  const dist = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+  if(dist > 20000) return;  // 20km外不画
+  const [sLng,sLat] = wgs84ToGcj02(selfWgsLon, selfWgsLat);
+  const [dLng,dLat] = wgs84ToGcj02(d.wgs_lon, d.wgs_lat);
+  selfToDroneLines[id] = new AMap.Polyline({
+    path: [[sLng,sLat],[dLng,dLat]],
+    strokeColor: '#e6a23c', strokeWeight: 2, strokeOpacity: 0.7,
+    strokeStyle: 'dashed', showDir: true
+  });
+  map.add(selfToDroneLines[id]);
+}
+
+
+function locateMe(){
+  if(selfGpsValid && selfWgsLat!==null){
+    const [lng,lat] = wgs84ToGcj02(selfWgsLon, selfWgsLat);
+    map.setZoomAndCenter(16, [lng,lat]);
+    addLog('success','[地图] 已定位到当前位置');
+  } else {
+    if(!phoneGpsOn && navigator.geolocation){
+      togglePhoneGps();
+      addLog('info','[地图] 正在获取定位，请稍候...');
+    } else {
+      addLog('warn','[地图] 当前无定位数据');
+    }
+  }
+}
+
+function toggleSatellite(){
+  if(!map) return;
+  const btn = document.getElementById('mapFabSat');
+  if(isSatellite){
+    if(satelliteLayer) map.remove(satelliteLayer);
+    if(roadNetLayer) map.remove(roadNetLayer);
+    if(btn) btn.textContent='卫星';
+    isSatellite=false;
+  } else {
+    if(satelliteLayer){ map.add(satelliteLayer); if(roadNetLayer) map.add(roadNetLayer); }
+    if(btn) btn.textContent='路网';
+    isSatellite=true;
+  }
+}
+
+function initMap() {
+  AMapLoader.load({
+    key:'7f1bb04e334aa0021d9a92ff8981c054', version:'2.0',
+    plugins:['AMap.Scale','AMap.ToolBar','AMap.InfoWindow']
+  }).then((AMap)=>{
+    map = new AMap.Map('map-container', {
+      zoom: 14, center: wgs84ToGcj02(121.6147, 38.9140),
+      resizeEnable: true, touchZoom: true, doubleClickZoom: true
+    });
+    map.addControl(new AMap.Scale());
+    map.addControl(new AMap.ToolBar({position:'RB'}));
+    try {
+      satelliteLayer = new AMap.TileLayer.Satellite();
+      roadNetLayer = new AMap.TileLayer.RoadNet();
+    } catch(e){ console.warn('satellite layer', e); }
+
+    const [dLng,dLat] = wgs84ToGcj02(121.6147, 38.9140);
+    centerMarker = new AMap.Marker({
+      position:[dLng,dLat],
+      content:`<div style="position:relative"><div style="width:18px;height:18px;background:#409eff;border:3px solid white;border-radius:50%;box-shadow:0 0 10px rgba(64,158,255,0.6)"></div><div style="position:absolute;top:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;background:rgba(64,158,255,0.9);color:white;padding:1px 6px;border-radius:4px">侦测设备</div></div>`,
+      offset: new AMap.Pixel(-9,-9)
+    });
+    map.add(centerMarker);
+    addLog('success','[地图] 高德地图加载完成');
+  }).catch(e=>addLog('error','[地图] 加载失败: '+e.message));
+}
+
+function updateDroneOnMap(id, wgsLat, wgsLon, alt, speed, heading, sn, opLat, opLon, uaType) {
+  if(!map) return;
+  const [gcjLng,gcjLat] = wgs84ToGcj02(wgsLon, wgsLat);
+  const pos = [gcjLng, gcjLat];
+
+  // 初始化或更新数据（统一转数字，避免 BLE 原始字符串导致下游数学运算出错）
+  if(!droneData[id]) droneData[id] = { history: [] };
+  Object.assign(droneData[id], {
+    wgs_lat:Number(wgsLat), wgs_lon:Number(wgsLon), gcj_lat:gcjLat, gcj_lon:gcjLng,
+    alt:Number(alt), speed:Number(speed), heading:Number(heading), sn:sn||id,
+    op_lat:Number(opLat), op_lon:Number(opLon), ua_type:uaType||'未知'
+  });
+  // 记录轨迹历史（上限100点，64架=6400点，控制内存）
+  droneData[id].history.push({ lat:gcjLat, lng:gcjLng, t:Date.now(), alt:Number(alt)||0, speed:Number(speed)||0 });
+  if(droneData[id].history.length > 100) droneData[id].history.shift();
+  droneData[id]._lastSeen = Date.now(); // 用于过期清理
+
+  // 无人机标记
+  if(droneMarkers[id]) {
+    droneMarkers[id].setPosition(pos);
+  } else {
+    const m = new AMap.Marker({
+      position:pos,
+      content:`<div style="width:14px;height:14px;background:#67c23a;border:2px solid white;border-radius:50%;box-shadow:0 0 6px rgba(103,194,58,0.6);cursor:pointer"></div>`,
+      offset: new AMap.Pixel(-7,-7), title: sn||id
+    });
+    m.on('click', ()=>{ showDroneInfo(id); });
+    map.add(m);
+    droneMarkers[id] = m;
+    droneTrails[id] = [];
+  }
+
+  // 飞手标记
+  if(opLat && opLon) {
+    const [oLng,oLat] = wgs84ToGcj02(opLon, opLat);
+    if(operatorMarkers[id]) {
+      operatorMarkers[id].setPosition([oLng,oLat]);
+    } else {
+      const om = new AMap.Marker({
+        position:[oLng,oLat],
+        content:`<div style="position:relative"><div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:14px solid #e6a23c;filter:drop-shadow(0 0 4px rgba(230,162,60,0.6))"></div><div style="position:absolute;top:16px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:9px;background:rgba(230,162,60,0.9);color:white;padding:1px 4px;border-radius:3px">飞手</div></div>`,
+        offset: new AMap.Pixel(-7,-7)
+      });
+      om.on('click', ()=>showDetail(id));
+      map.add(om);
+      operatorMarkers[id] = om;
+    }
+    // 飞手-无人机连线
+    if(droneMarkers[id]._opLine) map.remove(droneMarkers[id]._opLine);
+    const ol = new AMap.Polyline({path:[[oLng,oLat],pos],strokeColor:'#e6a23c',strokeWeight:1,strokeOpacity:0.4,strokeStyle:'dashed'});
+    map.add(ol); droneMarkers[id]._opLine = ol;
+  }
+
+  // 轨迹线
+  droneTrails[id].push(pos);
+  if(droneTrails[id].length > 80) droneTrails[id].shift();
+  if(droneMarkers[id]._trailLine) map.remove(droneMarkers[id]._trailLine);
+  if(droneTrails[id].length > 1) {
+    const tl = new AMap.Polyline({path:droneTrails[id],strokeColor:'#67c23a',strokeWeight:2,strokeOpacity:0.5,lineJoin:'round'});
+    map.add(tl); droneMarkers[id]._trailLine = tl;
+  }
+
+  document.getElementById('mapTargetCount').textContent = Object.keys(droneMarkers).length;
+  // v2.2.16: 更新自己→目标连线
+  updateSelfToDroneLine(id);
+}
+
+// ============ 地图标记快速信息弹窗 ============
+let _infoWindow = null;
+function showDroneInfo(id) {
+  const d = droneData[id];
+  if(!d) return;
+  const bi = lookupSN(d.sn, d._lastMAC);
+  const content = `<div style="padding:8px 10px;font-size:12px;min-width:180px;line-height:1.8">
+    <div style="font-weight:700;font-size:14px;color:#1a1a2e;margin-bottom:4px">${id} ${d.is_dji?'<span style="background:rgba(230,162,60,0.15);color:#e6a23c;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600">DJI协议</span>':'<span style="background:rgba(64,158,255,0.12);color:#409eff;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600">RID</span>'}</div>
+    <div><span style="color:#909399">品牌:</span> ${bi.brand} ${bi.model||''}</div>
+    <div><span style="color:#909399">SN:</span> <span style="font-family:monospace;font-size:11px">${d.sn}</span></div>
+    <div><span style="color:#909399">${d._has_rel?'相对高度':'高度'}:</span> <b style="color:#e6a23c">${Number(d.alt).toFixed(1)}m</b>${d._has_rel?'<span style="font-size:10px;color:#909399;margin-left:2px">'+(d.height_ref==='over_takeoff'?'(相对起飞点)':'(相对地面)')+'</span>':''} &nbsp;<span style="color:#909399">速度:</span> ${Number(d.speed).toFixed(1)}m/s</div>
+    <div><span style="color:#909399">航向:</span> ${Number(d.heading).toFixed(0)}°</div>
+    <div style="margin-top:6px;text-align:center"><a href="javascript:showDetail('${id}');_infoWindow&&_infoWindow.close()" style="color:#409eff;font-weight:600;font-size:12px">查看详情 →</a></div>
+  </div>`;
+  if(!_infoWindow) _infoWindow = new AMap.InfoWindow({offset: new AMap.Pixel(0,-12), closeWhenClickMap: true});
+  _infoWindow.setContent(content);
+  _infoWindow.open(map, droneMarkers[id].getPosition());
+}
+
+// ============ 详情弹窗 ============
+function showDetail(id) {
+  try {
+  const d = droneData[id];
+  if(!d) { addLog('error','[DEBUG] droneData['+id+'] 不存在! keys='+Object.keys(droneData).join(',')); return; }
+
+  document.getElementById('detailTitle').textContent = `🛩️ ${id}`;
+  document.getElementById('detailSubtitle').textContent = `SN: ${d.sn}`;
+
+  let html = '';
+
+  // === 基本信息 ===
+  const bInfo = lookupSN(d.sn, d._lastMAC);
+  html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">📋</span> 基本信息</div>
+    <div class="d-grid">
+      <div class="d-field highlight full">
+        <div class="df-label">序列号 SN / UAS ID</div>
+        <div class="df-value" style="color:#409eff;font-size:15px">${d.sn}</div>
+      </div>
+      <div class="d-field highlight">
+        <div class="df-label">品牌</div>
+        <div class="df-value">${bInfo.brand}</div>
+      </div>
+      <div class="d-field highlight">
+        <div class="df-label">型号</div>
+        <div class="df-value">${bInfo.model || '--'}</div>
+      </div>
+      <div class="d-field"><div class="df-label">无人机类型</div><div class="df-value">${uaTypeCN(d.ua_type)}</div></div>
+      <div class="d-field"><div class="df-label">设备编号</div><div class="df-value">${id}</div></div>
+      <div class="d-field highlight full">
+        <div class="df-label">发现方式</div>
+        <div class="df-value">${d.is_dji ? '<span class="source-tag source-dji" style="font-size:12px">🔒 DJI DroneID 协议解析</span>' : '<span class="source-tag source-rid" style="font-size:12px">📡 标准 RID 侦测 (ASTM/GB)</span>'}</div>
+      </div>
+    </div>
+  </div>`;
+
+  // === DJI DroneID 私有协议数据 ===
+  if(d.is_dji) {
+    html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">🔒</span> DJI DroneID (私有协议)</div>
+    <div class="d-grid">
+      <div class="d-field highlight">
+        <div class="df-label">DJI 型号</div>
+        <div class="df-value" style="color:#e6a23c">${d.dji_model||'Unknown'} <span style="font-size:10px;color:#909399">(${d.dji_model_code||'--'})</span></div>
+      </div>
+      <div class="d-field highlight">
+        <div class="df-label">DJI 序列号</div>
+        <div class="df-value">${d.dji_serial||'--'}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">数据类型</div>
+        <div class="df-value">${d.dji_type==='0x10'?'Telemetry(遥测)':d.dji_type==='0x11'?'Flight Info(飞控)':'Unknown'}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">电池电量</div>
+        <div class="df-value">${d.dji_battery!==undefined?d.dji_battery+'%':'--'}</div>
+      </div>
+      ${d.dji_type==='0x10' ? `
+      <div class="d-field">
+        <div class="df-label">DJI 水平速度</div>
+        <div class="df-value">${d.dji_speed_h!==undefined?d.dji_speed_h.toFixed(1)+' m/s':'--'}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">DJI 垂直速度</div>
+        <div class="df-value">${d.dji_speed_v!==undefined?d.dji_speed_v.toFixed(1)+' m/s':'--'}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">DJI 航向</div>
+        <div class="df-value">${d.dji_heading!==undefined?d.dji_heading.toFixed(1)+'°':'--'}</div>
+      </div>
+      ` : ''}
+      ${d.dji_type==='0x11' ? `
+      <div class="d-field full">
+        <div class="df-label">DJI 识别码</div>
+        <div class="df-value">${d.dji_id||'--'}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">DJI 飞手位置</div>
+        <div class="df-value">${d.dji_pilot_lat!==undefined?d.dji_pilot_lat.toFixed(6)+','+d.dji_pilot_lon.toFixed(6):'--'}</div>
+      </div>
+      ` : ''}
+    </div>
+  </div>`;
+  }
+
+  // === 飞行参数 ===
+  const refLabel = d.height_ref === 'over_takeoff' ? '相对起飞点' : (d.height_ref === 'over_ground' ? '相对地面' : '');
+  html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">🛫</span> 飞行参数</div>
+    <div class="d-grid">
+      ${d._has_rel ? `
+      <div class="d-field highlight full">
+        <div class="df-label">相对高度${refLabel ? ' ('+refLabel+')' : ''}</div>
+        <div class="df-value" style="color:#e6a23c;font-size:18px;font-weight:700">${Number(d.alt||0).toFixed(1)} m</div>
+      </div>` : ''}
+      <div class="d-field"><div class="df-label">气压高度 (Baro)</div><div class="df-value">${d.alt_baro ? d.alt_baro.toFixed(1)+' m' : '--'}</div></div>
+      <div class="d-field"><div class="df-label">大地高度 (MSL/HAE)</div><div class="df-value">${d.alt_geo ? d.alt_geo.toFixed(1)+' m' : '--'}</div></div>
+      ${d.gb_rel_alt !== undefined ? `<div class="d-field"><div class="df-label">GB46750 相对高度</div><div class="df-value">${d.gb_rel_alt.toFixed(1)} m</div></div>` : ''}
+      <div class="d-field"><div class="df-label">飞行速度</div><div class="df-value">${Number(d.speed||0).toFixed(1)} m/s</div></div>
+      <div class="d-field"><div class="df-label">航速 km/h</div><div class="df-value">${(Number(d.speed||0) * 3.6).toFixed(1)} km/h</div></div>
+      <div class="d-field"><div class="df-label">航向角</div><div class="df-value">${Number(d.heading||0).toFixed(0)}°</div></div>
+    </div>
+  </div>`;
+
+  // === 无人机位置 === v2.2.8: 无坐标时显示定位中，不再 toFixed 崩溃
+  if(d.wgs_lat !== undefined && d.wgs_lon !== undefined && !d._noLoc){
+  const droneAmapUri = `https://uri.amap.com/marker?position=${d.gcj_lon.toFixed(6)},${d.gcj_lat.toFixed(6)}&name=${encodeURIComponent('无人机位置')}&coordinate=gaode&callnative=1&src=ridmonitor&callnative=1`;
+  const droneBaiduUri = `https://api.map.baidu.com/marker?location=${d.wgs_lat.toFixed(6)},${d.wgs_lon.toFixed(6)}&title=${encodeURIComponent('无人机位置')}&content=RID&output=html&coord_type=wgs84`;
+  const droneGeoUri = `geo:${d.wgs_lat.toFixed(6)},${d.wgs_lon.toFixed(6)}?q=${d.wgs_lat.toFixed(6)},${d.wgs_lon.toFixed(6)}(${encodeURIComponent('无人机位置')})`;
+  html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">📍</span> 无人机位置</div>
+    <div class="d-grid">
+      <div class="d-field full"><div class="df-label">WGS-84 坐标 (GPS原始)</div><div class="df-value">${d.wgs_lat.toFixed(6)}, ${d.wgs_lon.toFixed(6)}</div></div>
+      <div class="d-field full highlight"><div class="df-label">GCJ-02 坐标 (高德地图)</div><div class="df-value">${d.gcj_lat.toFixed(6)}, ${d.gcj_lon.toFixed(6)}</div></div>
+      <div class="d-field full" style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="${droneAmapUri}" target="_blank" style="flex:1;min-width:90px;text-align:center;padding:8px 6px;background:#1a9b4a;color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600">🟢 高德导航到飞机</a>
+        <a href="${droneBaiduUri}" target="_blank" style="flex:1;min-width:90px;text-align:center;padding:8px 6px;background:#2a6fd6;color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600">🔵 百度地图</a>
+        <a href="${droneGeoUri}" style="flex:1;min-width:90px;text-align:center;padding:8px 6px;background:#555;color:#fff;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600">🧭 系统地图</a>
+      </div>
+    </div>
+  </div>`;
+  } else {
+  html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">📍</span> 无人机位置</div>
+    <div class="d-grid"><div class="d-field full"><div class="df-value" style="text-align:center;color:#e6a23c;padding:12px 0">📍 定位中... 等待位置数据</div></div></div>
+  </div>`;
+  }
+
+  // === 飞手位置 + 二维码 ===
+  if(d.op_lat && d.op_lon) {
+    const [oLng,oLat] = wgs84ToGcj02(d.op_lon, d.op_lat);
+    // 计算与飞手距离（简化公式）
+    const dist = calcDistance(d.wgs_lat, d.wgs_lon, d.op_lat, d.op_lon);
+    /* 高德地图 URI：扫码直接跳转高德地图APP定位 */
+    const amapUri = `https://uri.amap.com/marker?position=${oLng.toFixed(6)},${oLat.toFixed(6)}&name=${encodeURIComponent('飞手位置')}&coordinate=gaode&callnative=1`;
+
+    html += `<div class="detail-section">
+      <div class="detail-section-title"><span class="icon">🧑‍✈️</span> 飞手位置</div>
+      <div class="operator-box">
+        <div class="operator-info">
+          <div class="oi-label">WGS-84 坐标 (GPS)</div>
+          <div class="oi-value">${d.op_lat.toFixed(6)}, ${d.op_lon.toFixed(6)}</div>
+          <div class="oi-label" style="margin-top:6px">GCJ-02 坐标 (高德)</div>
+          <div class="oi-value">${oLat.toFixed(6)}, ${oLng.toFixed(6)}</div>
+          <div class="oi-label" style="margin-top:6px">距飞手距离</div>
+          <div class="oi-value" style="color:#e6a23c;font-size:14px;font-weight:600">${dist} m</div>
+        </div>
+        <div style="text-align:center">
+          <canvas class="qr-canvas" id="qrOp_${id}" width="80" height="80"></canvas>
+          <div style="font-size:9px;color:#e6a23c;margin-top:2px;font-weight:600">📱 扫码导航</div>
+          <a href="${amapUri}" target="_blank" style="display:block;margin-top:6px;padding:6px 4px;background:#1a9b4a;color:#fff;border-radius:5px;text-decoration:none;font-size:11px;font-weight:600">🟢 一键导航</a>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // v2.2.12: 围栏告警
+  if(d._geofence && d._geofence.alert){
+    const gf = d._geofence;
+    const lvlColor = gf.level === 2 ? '#f56c6c' : (gf.level === 3 ? '#e6a23c' : '#f56c6c');
+    html += `<div class="detail-section" style="border:1.5px solid ${lvlColor};border-radius:8px;background:${lvlColor}11">
+      <div class="detail-section-title"><span class="icon">⚠️</span> <span style="color:${lvlColor};font-weight:700">围栏告警：${gf.zone}</span></div>
+      <div class="d-grid">
+        <div class="d-field"><div class="df-label">告警等级</div><div class="df-value" style="color:${lvlColor};font-weight:600">${gf.level_name || ('level '+gf.level)}</div></div>
+        <div class="d-field"><div class="df-label">区域类型</div><div class="df-value">${gf.level === 2 ? '禁飞区/管制区' : (gf.level === 3 ? '机场净空区' : (gf.level === 1 ? '超高' : '其他'))}</div></div>
+      </div>
+    </div>`;
+  }
+
+  // === v2.2.13: 侦测时序（不依赖GPS，始终显示）===
+  const nowTs = Date.now();
+  const firstSeen = d._firstSeen || (d.history && d.history.length ? d.history[0].t : null);
+  const lastSeen = d._lastSeen || nowTs;
+  const isActive = (nowTs - lastSeen) < 30000;
+  const trackDur = firstSeen ? Math.round((isActive ? nowTs : lastSeen) - firstSeen)/1000 : 0;
+  const fmtFull = ts => {
+    if(!ts) return '--';
+    const dd = new Date(ts);
+    const p = n => String(n).padStart(2,'0');
+    return `${p(dd.getMonth()+1)}-${p(dd.getDate())} ${p(dd.getHours())}:${p(dd.getMinutes())}:${p(dd.getSeconds())}`;
+  };
+  const fmtDur = sec => {
+    sec = Math.round(sec);
+    if(sec < 60) return sec + '秒';
+    const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+    return (h?h+'小时':'') + m + '分' + s + '秒';
+  };
+  html += `<div class="detail-section">
+    <div class="detail-section-title"><span class="icon">⏱️</span> 侦测时序</div>
+    <div class="d-grid">
+      <div class="d-field highlight">
+        <div class="df-label">首次发现</div>
+        <div class="df-value" style="color:#67c23a">${fmtFull(firstSeen)}</div>
+      </div>
+      <div class="d-field highlight">
+        <div class="df-label">${isActive ? '最后信号' : '信号消失'}</div>
+        <div class="df-value" style="color:${isActive?'#409eff':'#909399'}">${fmtFull(lastSeen)}${isActive?' <span style="font-size:10px;color:#67c23a">●在线</span>':' <span style="font-size:10px;color:#909399">●离线</span>'}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">追踪时长</div>
+        <div class="df-value">${fmtDur(trackDur)}</div>
+      </div>
+      <div class="d-field">
+        <div class="df-label">最后RSSI</div>
+        <div class="df-value">${d.rssi!==undefined?d.rssi+' dBm':'--'}</div>
+      </div>
+      <div class="d-field full" style="background:rgba(64,158,255,0.04);border-color:rgba(64,158,255,0.15)">
+        <div class="df-label" style="font-size:10px;color:#909399">ℹ️ 说明</div>
+        <div class="df-value" style="font-size:11px;color:#909399;line-height:1.5">"首次发现"为侦测设备收到该目标信号的时间，并非无人机真实起飞时间；"信号消失"为最后一次收到信号的时间（30秒无更新判定离线）。标准RID协议本身不播发起飞时间。</div>
+      </div>
+    </div>
+  </div>`;
+
+  // === v2.2.16: 相对方位 + 信号强度 ===
+  const relHtml_parts = [];
+  if(selfGpsValid && selfWgsLat!==null && d.wgs_lat && !d._noLoc && !(d.wgs_lat===0&&d.wgs_lon===0)){
+    const distM = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+    const bear = calcBearing(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+    const distStr = distM>1000 ? (distM/1000).toFixed(2)+' km' : distM.toFixed(0)+' m';
+    relHtml_parts.push(`<div class="d-field highlight"><div class="df-label">直线距离</div><div class="df-value" style="color:#e6a23c;font-size:15px">${distStr}</div></div>`);
+    relHtml_parts.push(`<div class="d-field highlight"><div class="df-label">方位</div><div class="df-value" style="color:#e6a23c">${bearingToCN(bear)} <span style="font-size:11px;color:#909399">(${bear.toFixed(0)}°)</span></div></div>`);
+  }
+  if(d.rssi!==undefined && d.rssi!==null){
+    const r = d.rssi;
+    let quality, qColor;
+    if(r>=-60){quality='极强（近距）';qColor='#67c23a';}
+    else if(r>=-75){quality='良好';qColor='#67c23a';}
+    else if(r>=-88){quality='一般';qColor='#e6a23c';}
+    else {quality='较弱（远距/遮挡）';qColor='#f56c6c';}
+    relHtml_parts.push(`<div class="d-field"><div class="df-label">当前 RSSI</div><div class="df-value" style="color:${qColor}">${r} dBm <span style="font-size:10px;color:#909399">·${quality}</span></div></div>`);
+    if(d._rssiHist && d._rssiHist.length>=2){
+      relHtml_parts.push(`<div class="d-field"><div class="df-label">RSSI 范围</div><div class="df-value">${Math.min(...d._rssiHist.map(p=>p.r))} ~ ${Math.max(...d._rssiHist.map(p=>p.r))} dBm</div></div>`);
+    }
+    relHtml_parts.push(`<div class="d-field full"><div class="df-label">RSSI 趋势（近5分钟）</div><div class="df-value" style="padding-top:4px"><canvas id="rssiCanvas_${id}" width="320" height="60" style="width:100%;height:60px;background:#fafafa;border-radius:4px"></canvas></div></div>`);
+  }
+  if(relHtml_parts.length){
+    html += `<div class="detail-section">
+      <div class="detail-section-title"><span class="icon">📶</span> 方位 & 信号</div>
+      <div class="d-grid">${relHtml_parts.join('')}</div>
+    </div>`;
+  }
+
+  // === 飞行轨迹概览 ===
+  if(d.history && d.history.length > 1) {
+    let totalDist = 0;
+    for(let i=1;i<d.history.length;i++){
+      totalDist += calcDistanceRaw(d.history[i-1].lat, d.history[i-1].lng, d.history[i].lat, d.history[i].lng);
+    }
+    const durationSec = Math.round((d.history[d.history.length-1].t - d.history[0].t) / 1000);
+    const fmtTime = ts => { const d=new Date(ts); return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')+':'+d.getSeconds().toString().padStart(2,'0'); };
+    const takeoffTime = fmtTime(d.history[0].t);
+    const landingTime = fmtTime(d.history[d.history.length-1].t);
+    const durationStr = durationSec > 60 ? Math.floor(durationSec/60)+'分'+durationSec%60+'秒' : durationSec+'秒';
+
+    html += `<div class="detail-section">
+      <div class="detail-section-title"><span class="icon">📈</span> 飞行轨迹</div>
+      <div class="trajectory-box">
+        <div class="traj-stats">
+          <div class="traj-stat">起飞: <span class="tv">${takeoffTime}</span></div>
+          <div class="traj-stat">降落: <span class="tv">${landingTime}</span></div>
+          <div class="traj-stat">距离: <span class="tv">${totalDist > 1000 ? (totalDist/1000).toFixed(2)+' km' : totalDist.toFixed(0)+' m'}</span></div>
+          <div class="traj-stat">时长: <span class="tv">${durationStr}</span></div>
+        </div>
+        <div class="traj-map" id="trajMap_${id}"><div class="traj-map-loading">加载地图底图...</div></div>
+        <div style="text-align:center;margin-top:8px">
+          <button id="trajPlayBtn_${id}" onclick="toggleTrajAnim('${id}')" style="background:#409eff;color:white;border:none;border-radius:6px;padding:6px 20px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:background 0.2s">
+            <span id="trajPlayIcon_${id}">▶</span> <span id="trajPlayText_${id}">播放轨迹回放</span>
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('detailBody').innerHTML = html;
+  document.getElementById('detailOverlay').classList.add('show');
+
+  // v2.2.16: 绘制 RSSI 趋势曲线
+  if(d._rssiHist && d._rssiHist.length>=2){
+    drawRssiTrend(id, d._rssiHist);
+  }
+
+  // 异步生成 QR 码（高德地图 URI，扫码直接打开高德导航）
+  if(d.op_lat && d.op_lon) {
+    setTimeout(()=>{
+      const qrCanvas = document.getElementById(`qrOp_${id}`);
+      if(qrCanvas) {
+        const [oLng,oLat] = wgs84ToGcj02(d.op_lon, d.op_lon);
+        const amapUrl = `https://uri.amap.com/marker?position=${oLng.toFixed(6)},${oLat.toFixed(6)}&name=${encodeURIComponent('飞手位置')}&coordinate=gaode&callnative=1`;
+        generateQR(qrCanvas, amapUrl, 80);
+      }
+    }, 100);
+  }
+
+  // 异步绘制轨迹缩略图
+  if(d.history && d.history.length > 1) {
+    setTimeout(()=>drawTrajectoryMini(id), 300); // 等面板 slideUp 动画完成
+  }
+
+  // 地图上定位到该无人机
+  if(droneMarkers[id]) {
+    map.setCenter(droneMarkers[id].getPosition());
+  }
+  } catch(e) { addLog('error','[showDetail] '+e.message+' | stack: '+e.stack.split('\n').slice(1,3).join(' <- ')); }
+}
+
+// v2.2.16: 绘制 RSSI 趋势 mini 图
+function drawRssiTrend(id, hist){
+  const cv = document.getElementById('rssiCanvas_'+id);
+  if(!cv) return;
+  // 高清屏适配
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 320, H = 60;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0,0,W,H);
+  const pad = {l:28, r:6, t:6, b:14};
+  const w = W-pad.l-pad.r, h = H-pad.t-pad.b;
+  // v2.2.17: Y 轴自适应数据范围，避免强信号(-20dBm)出界。取数据min/max并外扩5dB，夹在[-110,-15]
+  let dMin=Infinity, dMax=-Infinity;
+  for(let i=0;i<hist.length;i++){ const r=hist[i].r; if(r<dMin)dMin=r; if(r>dMax)dMax=r; }
+  let yMin=Math.min(-110, Math.floor((dMin-5)/10)*10);
+  let yMax=Math.max(-15, Math.ceil((dMax+5)/10)*10);
+  if(yMax-yMin<40){ yMax=yMin+40; } // 最小跨度40dB（配合20dB刻度至少2格）
+  const yOf = v => pad.t + h*(1-(v-yMin)/(yMax-yMin));
+  // 网格 & y 刻度：按20dB间隔
+  ctx.strokeStyle='#eee'; ctx.lineWidth=1; ctx.fillStyle='#999'; ctx.font='9px sans-serif';
+  const gMin=Math.ceil(yMin/20)*20, gMax=Math.floor(yMax/20)*20;
+  for(let gv=gMin; gv<=gMax; gv+=20){
+    const y=yOf(gv);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillText(gv, 2, y+3);
+  }
+  // 数据折线
+  const n=hist.length;
+  if(n<2) return;
+  const tMin=hist[0].t, tMax=hist[n-1].t;
+  const xOf = t => pad.l + (tMax===tMin?w/2: w*(t-tMin)/(tMax-tMin));
+  // 填充
+  ctx.beginPath();
+  ctx.moveTo(xOf(hist[0].t), yOf(hist[0].r));
+  for(let i=1;i<n;i++) ctx.lineTo(xOf(hist[i].t), yOf(hist[i].r));
+  ctx.strokeStyle='#409eff'; ctx.lineWidth=1.6; ctx.stroke();
+  // 末端点
+  const last = hist[n-1];
+  ctx.fillStyle='#409eff';
+  ctx.beginPath(); ctx.arc(xOf(last.t), yOf(last.r), 2.5, 0, Math.PI*2); ctx.fill();
+  // 时间标签
+  ctx.fillStyle='#999'; ctx.font='9px sans-serif';
+  const fmtT = t => { const d=new Date(t); return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')+':'+d.getSeconds().toString().padStart(2,'0'); };
+  ctx.fillText(fmtT(hist[0].t), pad.l, H-2);
+  ctx.fillText(fmtT(hist[n-1].t), W-pad.r-38, H-2);
+}
+
+function closeDetail() {
+  document.getElementById('detailOverlay').classList.remove('show');
+  // 清理轨迹地图资源（防内存泄漏）
+  if(_trajAnimTimer) { clearInterval(_trajAnimTimer); _trajAnimTimer = null; }
+  if(_trajAnimLine && _trajMapInstance) { try { _trajMapInstance.remove(_trajAnimLine); } catch(e){} }
+  _trajAnimLine = null;
+  if(_trajMapInstance) { try { _trajMapInstance.destroy(); } catch(e){} _trajMapInstance = null; }
+  _trajAnimState = 'idle';
+  _trajDroneIcon = null;
+  _trajLine = null;
+  _trajGcjPts = null;
+  _trajTargetId = null;
+}
+
+// 绘制轨迹地图（默认显示完整轨迹，播放按钮触发动画）
+let _trajMapInstance = null;
+let _trajAnimTimer = null;
+let _trajAnimState = 'idle';  // idle | playing | paused | done
+let _trajDroneIcon = null;
+let _trajLine = null;
+let _trajCurIdx = 0;
+let _trajGcjPts = null;
+let _trajTargetId = null;
+
+function drawTrajectoryMini(id) {
+  const container = document.getElementById(`trajMap_${id}`);
+  if(!container) return;
+  const d = droneData[id];
+  const h = d.history;
+  if(h.length < 2) { container.innerHTML='<div class="traj-map-loading">轨迹点不足</div>'; return; }
+
+  // 清理旧地图和旧动画
+  if(_trajAnimTimer) { clearInterval(_trajAnimTimer); _trajAnimTimer = null; }
+  if(_trajAnimLine) { _trajAnimLine = null; }
+  if(_trajMapInstance) { try { _trajMapInstance.destroy(); } catch(e){} _trajMapInstance = null; }
+  container.innerHTML = '';
+  _trajAnimState = 'idle';
+  _trajTargetId = id;
+
+  // ★ history 存的就是 GCJ-02 坐标，不需要再转换！
+  const gcjPts = h.map(p => [p.lng, p.lat]);
+  _trajGcjPts = gcjPts;
+
+  // 计算中心
+  let cLat = 0, cLng = 0;
+  gcjPts.forEach(p => { cLng += p[0]; cLat += p[1]; });
+  cLng /= gcjPts.length; cLat /= gcjPts.length;
+
+  // 创建高德地图实例
+  let trajMap;
+  try {
+    trajMap = new AMap.Map(container, {
+      zoom: 15,
+      center: [cLng, cLat],
+      mapStyle: 'amap://styles/normal',
+      viewMode: '2D',
+      showLabel: true,
+      dragEnable: true,
+      zoomEnable: true
+    });
+  } catch(e) {
+    container.innerHTML = '<div class="traj-map-loading">地图创建失败</div>';
+    console.error('[轨迹地图] 创建失败:', e);
+    return;
+  }
+  _trajMapInstance = trajMap;
+
+  // 起点标记（绿色圆点）
+  trajMap.add(new AMap.Marker({
+    position: gcjPts[0],
+    content: '<div style="width:10px;height:10px;border-radius:50%;background:#67c23a;border:2px solid white;box-shadow:0 0 6px rgba(103,194,58,0.6);"></div>',
+    offset: new AMap.Pixel(-5, -5)
+  }));
+
+  // 终点标记（红色圆点）
+  trajMap.add(new AMap.Marker({
+    position: gcjPts[gcjPts.length-1],
+    content: '<div style="width:10px;height:10px;border-radius:50%;background:#f56c6c;border:2px solid white;box-shadow:0 0 6px rgba(245,108,108,0.6);"></div>',
+    offset: new AMap.Pixel(-5, -5)
+  }));
+
+  // 飞手位置（op_lat/op_lon 是 WGS-84，需要转换）
+  if(d.op_lat && d.op_lon) {
+    const [oLng, oLat] = wgs84ToGcj02(d.op_lon, d.op_lat);
+    trajMap.add(new AMap.Marker({
+      position: [oLng, oLat],
+      content: '<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:12px solid #e6a23c;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3));"></div>',
+      offset: new AMap.Pixel(-6, -12)
+    }));
+  }
+
+  // 完整轨迹线（默认就画好，不走动画）
+  _trajLine = new AMap.Polyline({
+    path: gcjPts,
+    strokeColor: '#67c23a',
+    strokeWeight: 4,
+    strokeOpacity: 0.9,
+    lineJoin: 'round',
+    showDir: true,
+    strokeStyle: 'solid'
+  });
+  trajMap.add(_trajLine);
+
+  // 无人机标记（默认隐藏，播放时才显示）
+  _trajDroneIcon = new AMap.Marker({
+    position: gcjPts[0],
+    content: '<div style="width:18px;height:18px;background:#409eff;border:2px solid white;border-radius:50%;box-shadow:0 0 10px rgba(64,158,255,0.9);"></div>',
+    offset: new AMap.Pixel(-9, -9),
+    zIndex: 110
+  });
+  // 不添加到地图，等播放时再添加
+
+  // 自适应视野
+  trajMap.setFitView(null, false, [30, 30, 30, 30]);
+}
+
+// 播放/暂停/重播 控制
+function toggleTrajAnim(id) {
+  const btn = document.getElementById(`trajPlayBtn_${id}`);
+  const icon = document.getElementById(`trajPlayIcon_${id}`);
+  const text = document.getElementById(`trajPlayText_${id}`);
+  if(!btn || !_trajMapInstance || _trajTargetId !== id) return;
+
+  if(_trajAnimState === 'idle' || _trajAnimState === 'done') {
+    // 开始/重新播放
+    _trajAnimState = 'playing';
+    icon.textContent = '⏸';
+    text.textContent = '暂停';
+    btn.style.background = '#e6a23c';
+
+    // 重置动画状态
+    if(_trajAnimTimer) { clearInterval(_trajAnimTimer); _trajAnimTimer = null; }
+    _trajCurIdx = 0;
+
+    // 隐藏完整线，显示无人机标记
+    _trajLine.hide();
+    if(!_trajDroneIcon.getMap()) _trajMapInstance.add(_trajDroneIcon);
+    _trajDroneIcon.show();
+    _trajDroneIcon.setPosition(_trajGcjPts[0]);
+
+    // 创建动画轨迹线（从起点开始逐渐延伸）
+    if(_trajAnimLine) { _trajMapInstance.remove(_trajAnimLine); _trajAnimLine = null; }
+    _trajAnimLine = new AMap.Polyline({
+      path: [_trajGcjPts[0]],
+      strokeColor: '#67c23a',
+      strokeWeight: 4,
+      strokeOpacity: 0.9,
+      lineJoin: 'round',
+      showDir: true,
+      strokeStyle: 'solid'
+    });
+    _trajMapInstance.add(_trajAnimLine);
+
+    startTrajInterval(id);
+
+  } else if(_trajAnimState === 'playing') {
+    // 暂停
+    _trajAnimState = 'paused';
+    icon.textContent = '▶';
+    text.textContent = '继续播放';
+    btn.style.background = '#409eff';
+    if(_trajAnimTimer) { clearInterval(_trajAnimTimer); _trajAnimTimer = null; }
+
+  } else if(_trajAnimState === 'paused') {
+    // 继续
+    _trajAnimState = 'playing';
+    icon.textContent = '⏸';
+    text.textContent = '暂停';
+    btn.style.background = '#e6a23c';
+    startTrajInterval(id);
+  }
+}
+
+let _trajAnimLine = null;
+
+function startTrajInterval(id) {
+  const totalPts = _trajGcjPts.length;
+  // 动画速度：按真实时间间隔回放，每个点至少150ms，上限800ms
+  const h = droneData[id].history;
+  let avgInterval = 1000;  // 默认1秒/点
+  if(h.length >= 2) {
+    const totalTime = h[h.length-1].t - h[0].t;
+    avgInterval = totalTime / (h.length - 1);
+  }
+  const interval = Math.max(150, Math.min(800, avgInterval));
+
+  _trajAnimTimer = setInterval(() => {
+    _trajCurIdx++;
+    if(_trajCurIdx >= totalPts) {
+      clearInterval(_trajAnimTimer);
+      _trajAnimTimer = null;
+      _trajAnimState = 'done';
+
+      // 恢复完整线
+      if(_trajAnimLine) { _trajMapInstance.remove(_trajAnimLine); _trajAnimLine = null; }
+      _trajLine.show();
+
+      // 隐藏无人机
+      _trajDroneIcon.hide();
+
+      // 更新按钮
+      const icon = document.getElementById(`trajPlayIcon_${id}`);
+      const text = document.getElementById(`trajPlayText_${id}`);
+      const btn = document.getElementById(`trajPlayBtn_${id}`);
+      if(icon) icon.textContent = '🔄';
+      if(text) text.textContent = '重新播放';
+      if(btn) btn.style.background = '#67c23a';
+
+      // 飞手到终点连线
+      const d = droneData[id];
+      if(d.op_lat && d.op_lon) {
+        const [oLng, oLat] = wgs84ToGcj02(d.op_lon, d.op_lat);
+        _trajMapInstance.add(new AMap.Polyline({
+          path: [[oLng, oLat], _trajGcjPts[totalPts-1]],
+          strokeColor: '#e6a23c', strokeWeight: 1.5, strokeOpacity: 0.5, strokeStyle: 'dashed'
+        }));
+      }
+
+      _trajMapInstance.setFitView(null, false, [25, 25, 25, 25]);
+      return;
+    }
+
+    // 更新动画轨迹线
+    _trajAnimLine.setPath(_trajGcjPts.slice(0, _trajCurIdx + 1));
+    // 移动无人机
+    _trajDroneIcon.setPosition(_trajGcjPts[_trajCurIdx]);
+  }, interval);
+}
+
+// 计算两点距离（米）
+function calcDistance(lat1,lng1,lat2,lng2){
+  const R=6371000, dLat=(lat2-lat1)*PI/180, dLng=(lng2-lng1)*PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*PI/180)*Math.cos(lat2*PI/180)*Math.sin(dLng/2)**2;
+  return (R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(0);
+}
+function calcDistanceRaw(lat1,lng1,lat2,lng2){
+  const R=6371000, dLat=(lat2-lat1)*PI/180, dLng=(lng2-lng1)*PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*PI/180)*Math.cos(lat2*PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function clearAllDrones(){
+  Object.keys(droneMarkers).forEach(id=>{
+    map.remove(droneMarkers[id]);
+    if(droneMarkers[id]._trailLine) map.remove(droneMarkers[id]._trailLine);
+    if(droneMarkers[id]._opLine) map.remove(droneMarkers[id]._opLine);
+  });
+  Object.keys(operatorMarkers).forEach(id=>map.remove(operatorMarkers[id]));
+  droneMarkers={}; droneTrails={}; operatorMarkers={};
+  Object.keys(droneData).forEach(k=>delete droneData[k]);
+  _lastTargetCount=-1; // 重置列表缓存
+  document.getElementById('targetListCount').textContent='0';
+}
+
+// ============ Web BLE ============
+const NUS_SERVICE='6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_TX='6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_RX='6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+let bleDevice=null,bleServer=null,txChar=null,rxChar=null,isConnected=false,uptimeTimer=null,uptimeSeconds=0;
+let _bleBuffer=''; // ★ BLE数据包缓冲（处理分包/粘包）
+let _staleCleanTimer=null; // ★ 过期目标清理定时器
+let _connecting=false; // ★ 防连击标志
+let _pairTimer=null; // ★ 配对超时计时器
+let _lastTargetCount=-1; // ★ 目标列表刷新优化
+
+async function toggleConnect(){
+  if(isConnected){disconnect();return}
+  if(_connecting) return; // 防止连击
+  _connecting=true;
+  try{
+    addLog('info','[BLE] 正在搜索设备...');
+    bleDevice=await navigator.bluetooth.requestDevice({filters:[{namePrefix:'RID-Station'},{namePrefix:'RID-Scanner'}],optionalServices:[NUS_SERVICE]});
+    bleDevice.addEventListener('gattserverdisconnected',onDisconnected);
+    addLog('info','[BLE] 正在连接...');
+    bleServer=await bleDevice.gatt.connect();
+    const svc=await bleServer.getPrimaryService(NUS_SERVICE);
+    txChar=await svc.getCharacteristic(NUS_TX);  // 0xFFE1 = NOTIFY (设备→手机)
+    rxChar=await svc.getCharacteristic(NUS_RX);  // 0xFFE2 = WRITE  (手机→设备)
+    txChar.addEventListener('characteristicvaluechanged',onBleData);
+    await txChar.startNotifications();
+    isConnected=true; updateConnectionUI(true);
+    addLog('success',`[BLE] 已连接: ${bleDevice.name}`);
+    {const _dn=document.getElementById('deviceName');if(_dn)_dn.textContent=bleDevice.name||'RID-Station-S3';}
+    // ★ 连接板子后：清空残留目标，准备接收真实侦测数据
+    clearAllDrones();
+    if(map && centerMarker) { centerMarker.hide(); } // 隐藏默认位置，等板子GPS
+    addLog('info','[系统] 已连接侦测板，等待设备就绪...');
+    // v2.0.2：侦测板自动配对（SUBSCRIBE 事件触发 PAIR_OK），无需手动输入 PIN。
+    // 等 5 秒超时保护：如果没收到 PAIR_OK，也强制进入已连接状态。
+    _connecting=false;
+    if(_pairTimer) clearTimeout(_pairTimer);
+    _pairTimer=setTimeout(()=>{
+      if(!isPaired && isConnected){
+        addLog('warn','[配对] 未收到 PAIR_OK，强制进入已连接状态');
+        onPairResult(true);
+      }
+    }, 5000);
+  }catch(e){
+    _connecting=false;
+    addLog('error','[BLE] 连接失败: '+e.message);
+  }
+}
+function disconnect(){if(bleDevice&&bleDevice.gatt.connected)bleDevice.gatt.disconnect();onDisconnected()}
+function onDisconnected(){
+  isConnected=false;updateConnectionUI(false);
+  addLog('warn','[BLE] 连接已断开');stopUptime();
+  // 重置BLE缓冲和状态
+  _bleBuffer='';
+  txChar=null; rxChar=null;
+  _connecting=false;
+  // 关闭配对弹窗+清除超时计时器
+  document.getElementById('pairOverlay').classList.remove('show');
+  if(_pairTimer){clearTimeout(_pairTimer);_pairTimer=null}
+  // 清空目标列表为未连接空状态
+  clearAllDrones();
+  document.getElementById('targetListContainer').innerHTML='<div class="target-item" style="color:var(--text-secondary);justify-content:center">等待设备连接...</div>';
+  // 重置地图中心标记为默认位置
+  if(map && centerMarker){
+    const [dLng,dLat]=wgs84ToGcj02(121.6147, 38.9140);
+    centerMarker.setPosition([dLng,dLat]);
+    centerMarker.show();
+    centerMarker._selfGps=false;
+    map.setCenter([dLng,dLat]);
+  }
+  document.getElementById('gpsStat').innerHTML='GPS: <span class="val">等待定位</span>';
+  document.getElementById('gpsStatus').textContent='未定位';
+  document.getElementById('gpsStatus').className='value orange';
+  {const _dn2=document.getElementById('deviceName');if(_dn2)_dn2.textContent='--';}
+  document.getElementById('firmwareVer').textContent='--';
+  document.getElementById('currentChannel').textContent='--';
+  document.getElementById('statPktRate').textContent='--';
+  document.getElementById('statFreeHeap').textContent='--';
+  document.getElementById('statTotalPkts').textContent='--';
+}
+function updateConnectionUI(c){
+  const b=document.getElementById('statusBadge');
+  if(c){b.textContent='已连接';b.className='badge connected';}
+  else{b.textContent='未连接';b.className='badge';isPaired=false;}
+  const bb=document.getElementById('bleConnectBtn');
+  if(bb){
+    if(c){bb.textContent='🔌 断开蓝牙';bb.style.background='var(--bg-input)';bb.style.color='var(--red)';bb.style.border='1px solid rgba(245,108,108,0.3)';}
+    else{bb.textContent='📡 蓝牙连接 S3 侦测站';bb.style.background='linear-gradient(135deg,#0d8b5f,#10b981)';bb.style.color='#fff';bb.style.border='none';}
+  }
+}
+function sendCmd(cmd){
+  if(!rxChar){addLog('warn','[BLE] 发送失败: 通道未建立');return}
+  const e=new TextEncoder();
+  rxChar.writeValue(e.encode(cmd+'\n')).then(()=>{
+    addLog('info',`[发送] ${cmd}`);
+  }).catch(err=>{
+    addLog('error',`[BLE] 发送失败: ${err.message}`);
+  });
+}
+function onBleData(e){
+  const chunk=new TextDecoder().decode(e.target.value);
+  _bleBuffer+=chunk;
+  // 按换行拆包，最后一段可能不完整则留在buffer
+  const lines=_bleBuffer.split('\n');
+  _bleBuffer=lines.pop()||'';
+  for(const line of lines){
+    let t=line.trim();
+    if(!t)continue;
+    // 统一剥离所有 DATA: 前缀（固件每个 DAT_PRINTF 片段都带，一行内可能多个）
+    if(t.includes('DATA:')) t=t.split('DATA:').join('').trim();
+    if(!t)continue;
+    addLog('success',`[接收] ${t.length>80?t.substring(0,77)+'...':t}`);
+    parseResp(t);
+  }
+}
+
+// ============ v2.2.12: 现场提醒（声音/震动/屏幕常亮）============
+let _audioCtx = null;
+let _wakeLock = null;
+// 已告警过的目标集合，避免同一个目标反复告警
+const _alertedTargets = new Map(); // id -> timestamp(ms)，用于新目标提醒去重，60s 后自动失效
+const _ALERTED_TTL = 60000; // 肩灯 BLE 广播断档后重新出现需再次提醒
+function _alertedHas(id){
+  const t=_alertedTargets.get(id);
+  if(t===undefined) return false;
+  if(Date.now()-t > _ALERTED_TTL){ _alertedTargets.delete(id); return false; }
+  return true;
+}
+function _alertedAdd(id){ _alertedTargets.set(id, Date.now()); }
+function _alertedDelete(id){ _alertedTargets.delete(id); }
+function _alertedClear(){ _alertedClear(); }
+
+function _ensureAudio(){
+  if(!_audioCtx){
+    try{ _audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ _audioCtx=null; }
+  }
+  if(_audioCtx && _audioCtx.state === 'suspended'){
+    _audioCtx.resume().catch(()=>{});
+  }
+  return _audioCtx;
+}
+
+// beep: 频率(Hz)、时长(ms)、音量(0~1)、类型
+function beep(freq=880, duration=200, volume=0.3, type='sine'){
+  const chk = document.getElementById('chkSound');
+  if(chk && !chk.checked) return;
+  const ctx = _ensureAudio();
+  if(!ctx) return;
+  try{
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration/1000);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration/1000);
+  }catch(e){}
+}
+
+// 新目标提示：两声上扬
+function playNewTargetSound(){
+  beep(660, 120, 0.25, 'sine');
+  setTimeout(()=>beep(990, 180, 0.3, 'sine'), 140);
+}
+
+// 围栏告警：急促三声高频
+function playAlertSound(){
+  [0, 180, 360].forEach(d=>setTimeout(()=>beep(1200, 140, 0.35, 'square'), d));
+}
+
+function vibrate(pattern){
+  const chk = document.getElementById('chkVibrate');
+  if(chk && !chk.checked) return;
+  if(navigator.vibrate){ try{ navigator.vibrate(pattern); }catch(e){} }
+}
+
+// 触发新目标提醒（声音+震动+横幅）
+function notifyNewTarget(sn, rssi, mac){
+  playNewTargetSound();
+  vibrate([100, 50, 100]);
+  const info = lookupSN(sn, mac);
+  const model = info.model ? info.brand + ' ' + info.model : (info.brand || '未知型号');
+  showTempBanner(`🛩️ 发现无人机：${model}${sn ? '（' + sn.substring(0,12) + (sn.length>12?'...':'') + '）' : ''}${rssi ? ' RSSI=' + rssi : ''}`, 'success', 4000);
+  try{ addAlertHistory('new', sn, {rssi:rssi, model:model}); }catch(e){}
+}
+
+// 触发围栏告警
+function notifyGeofence(sn, zoneName, levelName, extra){
+  playAlertSound();
+  vibrate([300, 100, 300, 100, 300]);
+  showTempBanner(`⚠️ 围栏告警：${sn || '目标'} 进入【${zoneName}】(${levelName})`, 'alert', 6000);
+  try{ addAlertHistory('geo', sn, Object.assign({zone:zoneName, level_name:levelName}, extra||{})); }catch(e){}
+}
+
+// ============ v2.2.13: 历史预警 ============
+const ALERT_HISTORY_KEY = 'rid_alert_history_v1';
+const ALERT_HISTORY_MAX = 500;
+let _alertHistory = [];
+let _unreadAlerts = 0;
+function _loadAlertHistory(){
+  try{
+    const raw = localStorage.getItem(ALERT_HISTORY_KEY);
+    if(raw){
+      const arr = JSON.parse(raw);
+      if(Array.isArray(arr)){ _alertHistory = arr; return; }
+    }
+  }catch(e){}
+  _alertHistory = [];
+}
+function _saveAlertHistory(){
+  try{
+    if(_alertHistory.length > ALERT_HISTORY_MAX){
+      _alertHistory = _alertHistory.slice(-ALERT_HISTORY_MAX);
+    }
+    localStorage.setItem(ALERT_HISTORY_KEY, JSON.stringify(_alertHistory));
+  }catch(e){}
+}
+function _fmtTime(ts){
+  const d = new Date(ts);
+  const p = n => String(n).padStart(2,'0');
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function addAlertHistory(type, sn, extra){
+  if(!_alertHistory.length) _loadAlertHistory();
+  const entry = {
+    t: Date.now(),
+    type: type, // 'new' | 'geo' | 'timeout'
+    sn: sn || '',
+    rssi: extra && extra.rssi !== undefined ? extra.rssi : null,
+    zone: extra && extra.zone ? extra.zone : '',
+    level: extra && extra.level_name ? extra.level_name : '',
+    model: extra && extra.model ? extra.model : '',
+    lat: extra && extra.lat !== undefined ? extra.lat : null,
+    lon: extra && extra.lon !== undefined ? extra.lon : null,
+    alt: extra && extra.alt !== undefined ? extra.alt : null,
+  };
+  // 去重：同一 SN 同类型在 5 秒内只记录一次
+  const last = _alertHistory.length ? _alertHistory[_alertHistory.length-1] : null;
+  if(last && last.sn === entry.sn && last.type === entry.type && (entry.t - last.t) < 5000){
+    return;
+  }
+  _alertHistory.push(entry);
+  _unreadAlerts++;
+  _saveAlertHistory();
+  _renderAlertHistory();
+  _updateAlertBadge();
+}
+function _updateAlertBadge(){
+  const b = document.getElementById('alertBadge');
+  if(!b) return;
+  if(_unreadAlerts > 0){
+    b.style.display = 'inline-block';
+    b.textContent = _unreadAlerts > 99 ? '99+' : _unreadAlerts;
+  } else {
+    b.style.display = 'none';
+  }
+}
+function _renderAlertHistory(){
+  const box = document.getElementById('alertHistoryList');
+  if(!box) return;
+  document.getElementById('alertHistoryCount').textContent = _alertHistory.length;
+  if(!_alertHistory.length){
+    box.innerHTML = '<div class="target-item" style="color:var(--text-secondary);justify-content:center">暂无预警记录</div>';
+    return;
+  }
+  // 倒序展示
+  const html = _alertHistory.slice().reverse().map((a, idx) => {
+    const realIdx = _alertHistory.length - 1 - idx;
+    let icon, title, meta;
+    if(a.type === 'new'){
+      icon = '<div class="alert-icon new">🛩️</div>';
+      const m = a.model || '未知型号';
+      title = `发现无人机：${m}`;
+      meta = `<span>SN: ${a.sn || '?'}</span>`;
+      if(a.rssi !== null && a.rssi !== undefined) meta += `<span>RSSI: ${a.rssi}dBm</span>`;
+    } else if(a.type === 'geo'){
+      icon = '<div class="alert-icon geo">⚠️</div>';
+      title = `围栏告警：${a.zone || '未知区域'}`;
+      meta = `<span>SN: ${a.sn || '?'}</span><span>等级: ${a.level || '?'}</span>`;
+      if(a.lat !== null && a.lon !== undefined) meta += `<span>坐标: ${Number(a.lat).toFixed(5)},${Number(a.lon).toFixed(5)}</span>`;
+      if(a.alt !== null && a.alt !== undefined) meta += `<span>高度: ${Number(a.alt).toFixed(0)}m</span>`;
+    } else {
+      icon = '<div class="alert-icon timeout">⏱️</div>';
+      title = `目标消失：${a.sn || '未知'}`;
+      meta = `<span>最后RSSI: ${a.rssi !== null ? a.rssi + 'dBm' : '?'}</span>`;
+    }
+    return `<div class="alert-item" onclick="showAlertDetail(${realIdx})">${icon}<div class="alert-body"><div class="alert-title">${title}</div><div class="alert-meta">${meta}</div></div><div class="alert-time">${_fmtTime(a.t)}</div></div>`;
+  }).join('');
+  box.innerHTML = html;
+}
+
+// v2.2.15: 预警条目详情
+function showAlertDetail(idx){
+  const a = _alertHistory[idx];
+  if(!a) return;
+  const titleMap = {new:'🛩️ 发现新目标', geo:'⚠️ 围栏告警', timeout:'⏱️ 目标信号消失'};
+  const colorMap = {new:'#67c23a', geo:'#f56c6c', timeout:'#909399'};
+  // 查找在线目标
+  let activeId = null;
+  if(a.sn){
+    for(const id in droneData){
+      const d = droneData[id];
+      if(d && (d.sn === a.sn || id === a.sn)){
+        const last = d._lastSeen || 0;
+        if(Date.now() - last < 30000){ activeId = id; break; }
+      }
+    }
+  }
+  const p = (label, val, cls) => val !== undefined && val !== null && val !== ''
+    ? `<div class="d-field ${cls||''}"><div class="df-label">${label}</div><div class="df-value">${val}</div></div>` : '';
+  const fullTime = (() => { const d=new Date(a.t); const pad=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; })();
+  let coordLine = '';
+  if(a.lat !== null && a.lat !== undefined && a.lon !== null && a.lon !== undefined){
+    const lat = Number(a.lat).toFixed(6), lon = Number(a.lon).toFixed(6);
+    coordLine = `<div class="d-field full"><div class="df-label">WGS-84 坐标</div><div class="df-value">${lat}, ${lon}
+      <a href="https://uri.amap.com/marker?position=${Number(a.lon).toFixed(6)},${Number(a.lat).toFixed(6)}&coordinate=wgs84&callnative=1" target="_blank" style="font-size:11px;color:#409eff;margin-left:8px">📍 在高德地图中查看</a></div></div>`;
+  }
+  const html = `<div class="detail-section">
+      <div class="detail-section-title"><span class="icon" style="color:${colorMap[a.type]}">●</span> <span style="color:${colorMap[a.type]};font-weight:700">${titleMap[a.type]||'预警'}</span></div>
+      <div class="d-grid">
+        ${p('发生时间', fullTime, 'highlight')}
+        ${p('序列号 SN / UAS ID', a.sn || '--', 'highlight')}
+        ${a.type==='new' ? p('识别型号', a.model || '未知型号') : ''}
+        ${a.type==='geo' ? p('告警区域', a.zone || '--') : ''}
+        ${a.type==='geo' ? p('告警等级', a.level || '--') : ''}
+        ${p('信号强度 RSSI', (a.rssi!==null&&a.rssi!==undefined)?a.rssi+' dBm':'--')}
+        ${(a.alt!==null&&a.alt!==undefined) ? p('飞行高度', Number(a.alt).toFixed(1)+' m') : ''}
+        ${coordLine}
+        <div class="d-field full" style="background:rgba(64,158,255,0.04);border-color:rgba(64,158,255,0.15)">
+          <div class="df-label" style="font-size:10px;color:#909399">ℹ️ 说明</div>
+          <div class="df-value" style="font-size:11px;color:#909399;line-height:1.5">此条记录为设备侦测到的历史事件。${a.type==='new'?'"发现新目标"为首次接收到该无人机RID信号的时刻。':a.type==='geo'?'围栏告警基于固件预置的大连地区12个重点区域判定。':'"信号消失"为30秒未收到该目标信号后判定离线。'}</div>
+        </div>
+        ${activeId ? `<div class="d-field full" style="text-align:center"><button onclick="closeDetail();showDetail('${activeId}')" style="background:#409eff;color:white;border:none;border-radius:6px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer">📋 查看该目标实时详情</button></div>` : ''}
+        <div class="d-field full" id="alertHistTrackBtn" style="text-align:center;display:none"><button onclick="openHistTrackForSn('${a.sn||''}')" style="background:#67c23a;color:white;border:none;border-radius:6px;padding:8px 20px;font-size:13px;font-weight:600;cursor:pointer">🗺️ 查看历史轨迹</button></div>
+      </div>
+    </div>`;
+  document.getElementById('detailTitle').textContent = titleMap[a.type] || '预警详情';
+  document.getElementById('detailSubtitle').textContent = a.sn ? `SN: ${a.sn}` : fullTime;
+  document.getElementById('detailBody').innerHTML = html;
+  document.getElementById('detailOverlay').classList.add('show');
+  // v2.3.0: 异步查找是否存在该 SN 的历史轨迹
+  if(a.sn){
+    findLatestTrackBySn(a.sn).then(rec=>{
+      if(rec && rec.trackPoints && rec.trackPoints.length>=2){
+        const btn = document.getElementById('alertHistTrackBtn');
+        if(btn) btn.style.display = 'block';
+      }
+    }).catch(()=>{});
+  }
+}
+function clearAlertHistory(){
+  if(!confirm('确定清空所有历史预警记录？')) return;
+  _alertHistory = [];
+  _unreadAlerts = 0;
+  _saveAlertHistory();
+  _renderAlertHistory();
+  _updateAlertBadge();
+  addLog('info','[预警] 历史预警已清空');
+}
+function exportAlertsCSV(){
+  if(!_alertHistory.length){ alert('暂无预警记录'); return; }
+  const rows = [['时间','类型','SN/标识','型号/区域','等级','RSSI','纬度','经度','高度']];
+  _alertHistory.forEach(a => {
+    const t = _fmtTime(a.t);
+    if(a.type === 'new'){
+      rows.push([t,'新目标',a.sn||'',a.model||'','',a.rssi??'','','','']);
+    } else if(a.type === 'geo'){
+      rows.push([t,'围栏告警',a.sn||'',a.zone||'',a.level||'',a.rssi??'',a.lat??'',a.lon??'',a.alt??'']);
+    } else {
+      rows.push([t,'信号消失',a.sn||'','','',a.rssi??'','','','']);
+    }
+  });
+  const csv = '﻿' + rows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `rid-alerts-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
+// 顶部临时横幅（成功/告警两种样式），自动消失
+function showTempBanner(html, type, duration){
+  let bar = document.getElementById('tempBanner');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'tempBanner';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;transform:translateY(-100%);transition:transform 0.3s;box-shadow:0 2px 8px rgba(0,0,0,0.2)';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = html;
+  bar.style.background = type === 'alert' ? '#f56c6c' : '#10b981';
+  bar.style.color = '#fff';
+  requestAnimationFrame(()=>{ bar.style.transform = 'translateY(0)'; });
+  clearTimeout(bar._timer);
+  bar._timer = setTimeout(()=>{ bar.style.transform = 'translateY(-100%)'; }, duration || 3000);
+}
+
+// 屏幕常亮
+async function toggleWakeLock(enable){
+  if(!enable){
+    if(_wakeLock){ try{ await _wakeLock.release(); }catch(e){} _wakeLock = null; }
+    return;
+  }
+  if(!('wakeLock' in navigator)){
+    addLog('warn', '[系统] 当前浏览器不支持屏幕常亮 (Wake Lock API)');
+    const chk = document.getElementById('chkWake'); if(chk) chk.checked = false;
+    return;
+  }
+  try{
+    _wakeLock = await navigator.wakeLock.request('screen');
+    addLog('success', '[系统] 屏幕常亮已开启');
+    _wakeLock.addEventListener('release', ()=>{
+      // 页面切到后台会被系统释放，回来时若开关仍开着则重新申请
+      _wakeLock = null;
+      const chk = document.getElementById('chkWake');
+      if(chk && chk.checked && document.visibilityState === 'visible'){
+        toggleWakeLock(true);
+      }
+    });
+  }catch(e){
+    addLog('warn', '[系统] 屏幕常亮开启失败: ' + e.message);
+    const chk = document.getElementById('chkWake'); if(chk) chk.checked = false;
+  }
+}
+
+// 页面回到前台时，如果常亮开关仍开着，重新申请
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible'){
+    const chk = document.getElementById('chkWake');
+    if(chk && chk.checked && !_wakeLock) toggleWakeLock(true);
+  }
+});
+
+// ============ USB 直连：优先 WebUSB，回退 Web Serial ============
+// ESP32-C5 的原生 USB Serial/JTAG 是 Espressif 自定义设备类（VID=303A PID=1001），
+// 在 Windows 上不会自动生成 COM 口（Win7 需 Zadig 安装 WinUSB 驱动）。
+// WebUSB 可直接通过 WinUSB 读写 bulk 端点，不依赖串口驱动，兼容性远优于 Web Serial。
+let usbDevice=null, usbInEp=null, usbOutEp=null, usbIfNum=-1;
+let serialPort=null, serialReader=null, _serialBuffer='', _serialRunning=false;
+let _usbTransport = null;  // 'webusb' | 'webserial' | null
+
+async function toggleUsb(){
+  if(_serialRunning){ await usbDisconnect(); return; }
+  // 优先 WebUSB（Win7 + Zadig 驱动、Android Chrome 61+ 都支持）
+  if('usb' in navigator){
+    try{
+      addLog('info','[USB] 正在选择 USB 设备...');
+      const device = await navigator.usb.requestDevice({
+        filters: [
+          { vendorId: 0x303A },                              // Espressif 通用 VID
+          { vendorId: 0x303A, productId: 0x1001 }            // ESP32-C5 USB Serial/JTAG
+        ]
+      });
+      await openWebUsb(device);
+      return;
+    }catch(e){
+      if(e.name==='NotFoundError'){
+        addLog('warn','[USB] 未选择设备，已取消');
+        return;
+      }
+      addLog('warn','[USB] WebUSB 连接失败: '+e.message+'，尝试 Web Serial...');
+    }
+  }
+  // 回退到 Web Serial（Win10/11、较新 Android Chrome 可直接识别 CDC）
+  if('serial' in navigator){
+    try{
+      serialPort = await navigator.serial.requestPort();
+      await serialPort.open({ baudRate: 115200, dataBits:8, stopBits:1, parity:'none', flowControl:'none' });
+      await openWebSerial(serialPort);
+      return;
+    }catch(e){
+      addLog('error','[USB] Web Serial 连接失败: '+e.message);
+      return;
+    }
+  }
+  addLog('error','[USB] 当前浏览器不支持 WebUSB / Web Serial，请在 Chrome/Edge 中打开');
+  alert('当前浏览器不支持 USB 直连。\n请使用 Chrome 或 Edge 浏览器。\nWin7 需先用 Zadig 安装 WinUSB 驱动。');
+}
+
+// ====== WebUSB 打开流程 ======
+async function openWebUsb(device){
+  await device.open();
+  if(device.configuration===null) await device.selectConfiguration(1);
+
+  // ESP32-C5 USB Serial/JTAG 描述符：
+  //   interface 0 = JTAG（bulk IN/OUT endpoint 0x01/0x02）
+  //   interface 1 = 串口（bulk IN endpoint 0x81, bulk OUT endpoint 0x02，不同版本有差异）
+  // 动态查找带 bulk IN + bulk OUT 的接口，避免硬编码端点号
+  let found = null;
+  for(const cfg of device.configurations){
+    for(const iface of cfg.interfaces){
+      let inEp=null, outEp=null;
+      for(const alt of iface.alternates){
+        for(const ep of alt.endpoints){
+          if(ep.type!=='bulk') continue;
+          if(ep.direction==='in' && !inEp) inEp=ep;
+          if(ep.direction==='out' && !outEp) outEp=ep;
+        }
+      }
+      if(inEp && outEp){ found={iface, inEp, outEp}; break; }
+    }
+    if(found) break;
+  }
+  if(!found){
+    // 兜底：只要有任意 bulk IN 端点也能读（数据只读不写时够用）
+    for(const cfg of device.configurations){
+      for(const iface of cfg.interfaces){
+        for(const alt of iface.alternates){
+          const inEp = alt.endpoints.find(e=>e.type==='bulk'&&e.direction==='in');
+          if(inEp){ found={iface, inEp, outEp:null}; break; }
+        }
+        if(found) break;
+      }
+      if(found) break;
+    }
+  }
+  if(!found) throw new Error('未找到可用的 USB bulk 端点');
+
+  await device.claimInterface(found.iface.interfaceNumber);
+
+  usbDevice = device;
+  usbInEp = found.inEp.endpointNumber;
+  usbOutEp = found.outEp ? found.outEp.endpointNumber : null;
+  usbIfNum = found.iface.interfaceNumber;
+  _usbTransport = 'webusb';
+
+  const vid = device.vendorId, pid = device.productId;
+  document.getElementById('serialPortInfo').textContent =
+    `WebUSB VID=0x${vid.toString(16).padStart(4,'0')} PID=0x${pid.toString(16).padStart(4,'0')} if#${usbIfNum}`;
+  addLog('success',`[USB] WebUSB 已连接 (EP IN=0x${usbInEp.toString(16)}${usbOutEp?` OUT=0x${usbOutEp.toString(16)}`:''})`);
+
+  onUsbConnected('RID-Scanner (USB)');
+
+  _serialRunning=true;
+  _serialBuffer='';
+  const dec=new TextDecoder();
+  const loop = async ()=>{
+    while(_serialRunning && usbDevice){
+      try{
+        // USB FS 每次最多 64 字节，HS 512 字节；取 512 兼顾
+        const result = await usbDevice.transferIn(usbInEp, 512);
+        if(result.status==='ok' && result.data && result.data.byteLength>0){
+          const text = dec.decode(result.data, {stream:true});
+          feedUsbText(text);
+        } else if(result.status==='stall'){
+          try{ await usbDevice.clearHalt('in', usbInEp); }catch(_){}
+        }
+      }catch(e){
+        if(_serialRunning){
+          addLog('warn','[USB] 读取异常，200ms 后重试: '+e.message);
+          await new Promise(r=>setTimeout(r,200));
+        }
+      }
+    }
+  };
+  loop().then(()=>{
+    addLog('warn','[USB] WebUSB 读取已结束');
+  });
+}
+
+// ====== Web Serial 打开流程（回退） ======
+async function openWebSerial(port){
+  _usbTransport = 'webserial';
+  serialPort = port;
+  try{
+    const info = port.getInfo();
+    document.getElementById('serialPortInfo').textContent =
+      `Serial VID=0x${(info.usbVendorId||0).toString(16).padStart(4,'0')} PID=0x${(info.usbProductId||0).toString(16).padStart(4,'0')}`;
+  }catch(_){}
+  addLog('success','[USB] Web Serial 已打开 (115200 8N1)');
+
+  onUsbConnected('RID-Scanner (USB)');
+
+  _serialRunning=true;
+  _serialBuffer='';
+  const dec=new TextDecoder();
+  const loop = async ()=>{
+    while(_serialRunning && serialPort && serialPort.readable){
+      try{
+        serialReader = serialPort.readable.getReader();
+        while(true){
+          const {value,done}=await serialReader.read();
+          if(done) break;
+          feedUsbText(dec.decode(value,{stream:true}));
+        }
+      }catch(e){
+        if(_serialRunning) addLog('warn','[USB] 串口读取异常，重试: '+e.message);
+      }finally{
+        if(serialReader){ try{serialReader.releaseLock();}catch(_){} serialReader=null; }
+      }
+      if(_serialRunning) await new Promise(r=>setTimeout(r,200));
+    }
+  };
+  loop().then(()=>addLog('warn','[USB] Web Serial 读取已结束'));
+}
+
+// ====== 统一：处理从 USB 收到的文本，按行解析 DATA: 前缀 ======
+function feedUsbText(text){
+  _serialBuffer += text;
+  let nlIdx;
+  while((nlIdx=_serialBuffer.indexOf('\n'))>=0){
+    const line=_serialBuffer.slice(0,nlIdx).replace(/\r$/,'').trim();
+    _serialBuffer=_serialBuffer.slice(nlIdx+1);
+    if(!line) continue;
+    if(line.includes('DATA:')){
+      // 固件每个 DAT_PRINTF 都加 DATA: 前缀，一个 JSON 由多个片段拼成，
+      // 一行内可能出现多个 DATA:，全部移除后才是完整 JSON
+      const payload=line.split('DATA:').join('').trim();
+      if(payload){
+        addLog('success',`[USB] ${payload.length>80?payload.substring(0,77)+'...':payload}`);
+        parseResp(payload);
+      }
+    }
+    // 其他日志行（ESP_LOGx 输出）静默忽略；调试可解开下行
+    // else if(line) addLog('info',`[DBG] ${line.substring(0,80)}`);
+  }
+}
+
+// ====== 连接成功后的 UI/状态复用 ======
+function onUsbConnected(name){
+  isConnected=true; isPaired=true;
+  updateConnectionUI(true);
+  // v2.2.9 已移除蓝牙卡片，deviceName/rssiValue 元素不再存在，做空值防护
+  const dn=document.getElementById('deviceName'); if(dn) dn.textContent=name;
+  const rv=document.getElementById('rssiValue'); if(rv) rv.textContent='USB';
+  // v2.2.12: 用户点击连接按钮属于用户手势，此时解锁音频上下文
+  _ensureAudio();
+  clearAllDrones && clearAllDrones();
+  // v2.2.12: 新连接时清空已告警集合
+  _alertedTargets.clear();
+  if(map && centerMarker) centerMarker.hide();
+  startUptime();
+  const btn=document.getElementById('serialBtn');
+  if(btn){
+    btn.textContent='🔌 断开 USB';
+    btn.style.background='var(--bg-input)';
+    btn.style.color='var(--red)';
+    btn.style.border='1px solid rgba(245,108,108,0.3)';
+  }
+}
+
+async function usbDisconnect(){
+  _serialRunning=false;
+  if(_usbTransport==='webusb' && usbDevice){
+    try{ await usbDevice.releaseInterface(usbIfNum); }catch(_){}
+    try{ await usbDevice.close(); }catch(_){}
+    usbDevice=null; usbInEp=null; usbOutEp=null; usbIfNum=-1;
+  }
+  if(_usbTransport==='webserial' && serialPort){
+    if(serialReader){ try{await serialReader.cancel();}catch(_){} try{serialReader.releaseLock();}catch(_){} serialReader=null; }
+    try{ await serialPort.close(); }catch(_){}
+    serialPort=null;
+  }
+  _usbTransport=null;
+  addLog('warn','[USB] 已断开');
+  onDisconnected();
+  const btn=document.getElementById('serialBtn');
+  btn.textContent='🔗 USB 连接设备';
+  btn.style.background='linear-gradient(135deg,#0d8b5f,#10b981)';
+  btn.style.color='#fff';
+  btn.style.border='none';
+  document.getElementById('serialPortInfo').textContent='--';
+}
+
+// 兼容旧代码可能的引用
+const toggleSerial = toggleUsb;
+const serialDisconnect = usbDisconnect;
+
+function parseResp(text){
+  // 配对结果处理
+  if(text === 'PAIR_OK') { onPairResult(true); return; }
+  if(text === 'PAIR_FAIL') { onPairResult(false); return; }
+
+  if(text.startsWith('STATUS:')){
+    // ★ 修复：先去掉STATUS:前缀，再按,拆分键值对
+    const body=text.substring(7); // "targets:5,gps:locked"
+    body.split(',').forEach(p=>{
+      const idx=p.indexOf(':');
+      if(idx<0) return;
+      const k=p.substring(0,idx), v=p.substring(idx+1);
+      if(k==='targets') document.getElementById('activeTargets').textContent=v;
+      if(k==='gps'){
+        document.getElementById('gpsStatus').textContent=v==='locked'?'3D锁定':'未定位';
+        document.getElementById('gpsStatus').className='value '+(v==='locked'?'green':'orange');
+      }
+      if(k==='channel') document.getElementById('currentChannel').textContent=v;
+      if(k==='version') document.getElementById('firmwareVer').textContent=v;
+    });
+  }
+  // JSON 格式数据
+  if(text.startsWith('{')){
+    let msg;
+    try {
+      msg = JSON.parse(text);
+    } catch(e){
+      const posMatch = e.message.match(/position (\d+)/);
+      let diag = '';
+      if(posMatch){
+        const p = parseInt(posMatch[1]);
+        const around = text.substring(Math.max(0,p-10), p+10);
+        const codes = [];
+        for(let i=Math.max(0,p-3); i<Math.min(text.length,p+3); i++) codes.push(i+':'+text.charCodeAt(i)+'('+text[i]+')');
+        diag = ' | 位置'+p+'上下文:['+around+'] 字符码:'+codes.join(' ');
+      }
+      addLog('error','[JSON解析失败] '+e.message+diag+' | 全文('+text.length+'): '+text);
+      return;
+    }
+    try {
+      // 启动横幅：解析固件版本、信道、最大目标数等
+      if(msg.evt === 'startup'){
+        if(msg.version){ document.getElementById('firmwareVer').textContent=msg.version; try{localStorage.setItem('rid_fw_ver',msg.version);}catch(e){} }
+        if(msg.channel !== undefined) document.getElementById('currentChannel').textContent=msg.channel;
+        if(msg.max_uavs !== undefined) addLog('info','[固件] v'+msg.version+' 已就绪，最大支持 '+msg.max_uavs+' 目标，信道 '+msg.channel);
+        else addLog('info','[固件] v'+(msg.version||'?')+' 已就绪');
+        return;
+      }
+      // 周期性状态报告
+      if(msg.evt === 'status'){
+        if(msg.active_uavs !== undefined) document.getElementById('activeTargets').textContent=msg.active_uavs;
+        // v2.2.10: 用固件 loop_min 同步运行时间
+        if(msg.loop_min !== undefined){
+          uptimeSeconds = msg.loop_min * 60;
+          if(!uptimeTimer) startUptime();
+        }
+        // 更新扩展状态
+        if(msg.pkts_per_sec !== undefined){ const el=document.getElementById('statPktRate'); if(el) el.textContent=msg.pkts_per_sec.toFixed(1); }
+        if(msg.free_heap !== undefined){ const el=document.getElementById('statFreeHeap'); if(el) el.textContent=(msg.free_heap/1024).toFixed(0)+'KB'; }
+        if(msg.total_pkts !== undefined){ const el=document.getElementById('statTotalPkts'); if(el) el.textContent=msg.total_pkts.toLocaleString(); }
+        // v2.6.8: 从 status JSON 读取板子 GPS（嵌入式字段，稳定通道）
+        if(msg.gps_sats !== undefined){
+          const sats=msg.gps_sats||0, lat=msg.gps_lat||0, lon=msg.gps_lon||0;
+          const alt=msg.gps_alt||0, hdop=msg.gps_hdop||0, valid=msg.gps_valid===1;
+          if(valid && lat!==0 && lon!==0 && sats>0){
+            boardGpsValid=true; boardGpsLat=lat; boardGpsLon=lon;
+            if(window._boardGpsAlt===undefined) window._boardGpsAlt=0;
+            window._boardGpsAlt=alt; window._boardGpsSats=sats; window._boardGpsHdop=hdop;
+            updateBoardGpsUI(lat,lon,alt,sats,hdop,true);
+          } else {
+            boardGpsValid=false; boardGpsLat=null; boardGpsLon=null;
+            window._boardGpsSats=sats; window._boardGpsHdop=hdop;
+            updateBoardGpsUI(0,0,0,sats,hdop,false);
+          }
+        }
+        return;
+      }
+      // 空域空闲通知
+      if(msg.evt === 'no_aircraft'){
+        document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
+        document.getElementById('mapTargetCount').textContent = Object.keys(droneData).length;
+        document.getElementById('targetListCount').textContent = Object.keys(droneData).length;
+        return;
+      }
+      // v2.0.5: 固件主动通知目标超时（30s无信号），立即从地图移除
+      if(msg.evt === 'uav_timeout' && msg.mac){
+        const macId = 'MAC_'+msg.mac;
+        // 找到该 MAC 对应的追踪 ID（可能已合并为 SN）
+        let removedId = null;
+        if(droneData[macId]) removedId = macId;
+        else {
+          // MAC 可能已被合并到 SN，找到包含该 MAC 的 SN 条目
+          for(const sid in droneData){
+            if(droneData[sid]._macs && droneData[sid]._macs[msg.mac]){
+              // 该 SN 下还有其他 MAC 在活跃，不删除，只移除这个 MAC 记录
+              delete droneData[sid]._macs[msg.mac];
+              // 但如果该 SN 没有任何活跃 MAC 了，就删除
+              if(Object.keys(droneData[sid]._macs).length===0) removedId = sid;
+              break;
+            }
+          }
+        }
+        if(removedId){
+          // v2.2.13: 信号消失前记录最后一次已知 RSSI/SN
+          try{
+            const d = droneData[removedId];
+            if(d){
+              addAlertHistory('timeout', d.sn || removedId, {rssi: d.rssi});
+            }
+          }catch(e){}
+          removeTarget(removedId);
+          // v2.3.3: 必须强制刷新列表，否则已删除目标还残留在UI
+          _lastTargetCount = -1;
+          updateTargetList('');
+        }
+        return;
+      }
+      // uav_status / uav_discovery：紧凑格式（顶层 lat/lon，非 location.latitude）
+      // v2.2.5: 即使没有有效坐标也创建目标（BLE 扫描可能先收到 Basic ID 后收到 Location）
+      if(msg.evt === 'uav_status' || msg.evt === 'uav_discovery'){
+        // v2.3.0: 信道占用统计
+        recordChannelPkt(msg.channel);
+        const hasLat = (msg.lat !== undefined && msg.lat !== null);
+        const hasLon = (msg.lon !== undefined && msg.lon !== null);
+        // ID：有 SN 用 SN；无 SN 用 MAC 做临时 ID
+        const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
+        const id = hasSN ? msg.basic_id.uas_id : (msg.mac ? ('MAC_'+msg.mac) : (msg.id || ('UAV_'+(msg.ts||''))));
+        const _isNew = !droneData[id];
+        if(_isNew) droneData[id] = { history: [], _macs: {}, _firstSeen: Date.now() };
+        // v2.2.8: 初始化默认值，防止无坐标目标点详情时 toFixed 崩溃
+        if(droneData[id].speed === undefined) droneData[id].speed = 0;
+        if(droneData[id].heading === undefined) droneData[id].heading = 0;
+        if(droneData[id].alt === undefined) droneData[id].alt = 0;
+        if(droneData[id].ua_type === undefined) droneData[id].ua_type = '未知';
+        // 基本信息
+        if(hasSN) droneData[id].sn = msg.basic_id.uas_id;
+        if(msg.basic_id && msg.basic_id.ua_type) droneData[id].ua_type = msg.basic_id.ua_type;
+        if(msg.mac){ droneData[id]._macs[msg.mac] = Date.now(); droneData[id]._lastMAC = msg.mac; }
+        if(msg.rssi !== undefined){ droneData[id].rssi = msg.rssi; pushRssiHistory(id, msg.rssi); }
+        if(msg.channel !== undefined) droneData[id].channel = msg.channel; // v2.3.0
+        if(msg.transport) droneData[id].transport = msg.transport;
+        if(msg.protocol) droneData[id].protocol = msg.protocol;
+        droneData[id]._lastSeen = Date.now();
+        // 只有有有效坐标时才更新地图
+        if(hasLat && hasLon && (msg.lat !== 0 || msg.lon !== 0)){
+          // v2.4.4-fix: 收到有效坐标时必须清除 _noLoc 标志，否则雷达/地图永久跳过此目标
+          droneData[id]._noLoc = false;
+          const relAlt = (msg.height !== undefined && msg.height !== null) ? msg.height : null;
+          const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (msg.alt_baro || msg.alt_geo || 0);
+          const opLat = (msg.system && msg.system.operator_lat) ? msg.system.operator_lat : null;
+          const opLon = (msg.system && msg.system.operator_lon) ? msg.system.operator_lon : null;
+          const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
+          updateDroneOnMap(id, msg.lat, msg.lon, alt,
+            (msg.speed_h||0).toFixed(1), (msg.direction||0).toFixed(0),
+            id, opLat, opLon, uaType);
+          if(droneData[id]){
+            droneData[id].alt_baro = msg.alt_baro || 0;
+            droneData[id].alt_geo = msg.alt_geo || 0;
+            droneData[id].height_ref = msg.height_ref || '';
+            droneData[id]._rel_alt = relAlt;
+            droneData[id]._has_rel = (relAlt !== null && relAlt !== 0);
+          }
+        } else {
+          // 无有效坐标，只更新列表
+          droneData[id]._noLoc = true;
+        }
+        document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
+        updateTargetList(id);
+        // v2.2.12: 仅在首次发现新目标时触发提醒（uav_status 是周期更新，不提醒）
+        if(_isNew && msg.evt === 'uav_discovery' && !_alertedHas(id)){
+          _alertedAdd(id);
+          notifyNewTarget(droneData[id].sn || id, droneData[id].rssi, droneData[id]._lastMAC);
+        }
+        return;
+      }
+      if(msg.evt === 'uav_update'){
+        // v2.3.0: 信道占用统计
+        recordChannelPkt(msg.channel);
+        const loc = msg.location;
+        const hasLoc = loc && typeof loc === 'object' && loc.latitude !== undefined;
+        // v2.2.13: location:null（无GPS定位）时也要更新 _lastSeen/RSSI/基本信息，
+        // 否则30s超时会把还在广播的目标清掉，造成"列表消失后又出现"的闪烁
+        // 有 SN 用 SN 做 ID；无 SN 用 MAC 做临时 ID，等收到 SN 后合并
+        const hasSN = msg.basic_id && msg.basic_id.uas_id && msg.basic_id.uas_id.length > 0;
+        const sn = hasSN ? msg.basic_id.uas_id : null;
+        const macId = 'MAC_'+msg.mac;
+        let id;
+
+        if(sn){
+          id = sn;
+          // v2.0.5: 记录此 SN 关联的所有 MAC，用于 uav_timeout 判断
+          if(!droneData[sn]) droneData[sn] = { history: [], _macs: {}, _firstSeen: Date.now() };
+          if(!droneData[sn]._macs) droneData[sn]._macs = {};
+          droneData[sn]._macs[msg.mac] = Date.now();
+
+          // 如果之前用此 MAC 的临时 ID 追踪过，迁移到 SN
+          if(droneData[macId]){
+            const old = droneData[macId];
+            // 合并 history 轨迹，不丢失
+            if(old.history && old.history.length){
+              if(!droneData[sn].history) droneData[sn].history = [];
+              droneData[sn].history = old.history.concat(droneData[sn].history||[]);
+              if(droneData[sn].history.length > 100) droneData[sn].history = droneData[sn].history.slice(-100);
+            }
+            // 迁移地图标记
+            if(droneMarkers[macId] && !droneMarkers[sn]){
+              droneMarkers[sn] = droneMarkers[macId];
+            } else if(droneMarkers[macId]){
+              map.remove(droneMarkers[macId]);
+            }
+            delete droneMarkers[macId];
+            if(droneTrails[macId] && !droneTrails[sn]) droneTrails[sn] = droneTrails[macId];
+            delete droneTrails[macId];
+            if(operatorMarkers[macId] && !operatorMarkers[sn]) operatorMarkers[sn] = operatorMarkers[macId];
+            else if(operatorMarkers[macId]) map.remove(operatorMarkers[macId]);
+            delete operatorMarkers[macId];
+            // 保留 SN 已有数据，只补充旧 MAC 数据中 SN 没有的字段
+            Object.keys(old).forEach(k=>{
+              if(k!=='history' && k!=='_macs' && droneData[sn][k]===undefined) droneData[sn][k]=old[k];
+            });
+            delete droneData[macId];
+            addLog('info','[合并] MAC '+msg.mac+' → SN '+sn);
+          }
+        } else {
+          id = macId;
+          if(!droneData[id]) droneData[id] = { history: [], _firstSeen: Date.now() };
+        }
+        // v2.2.13: 无论是否有定位，都更新最后出现时间/RSSI/基本信息
+        droneData[id]._lastSeen = Date.now();
+        if(msg.rssi !== undefined){ droneData[id].rssi = msg.rssi; pushRssiHistory(id, msg.rssi); }
+        if(msg.channel !== undefined) droneData[id].channel = msg.channel; // v2.3.0
+        if(hasSN) droneData[id].sn = sn;
+        if(msg.basic_id && msg.basic_id.ua_type) droneData[id].ua_type = msg.basic_id.ua_type;
+        if(msg.transport) droneData[id].transport = msg.transport;
+        if(msg.protocol) droneData[id].protocol = msg.protocol;
+        if(msg.detect_source) droneData[id].detect_source = msg.detect_source;
+        if(!hasLoc){
+          // 无 GPS 定位（location:null），只刷新列表，不碰地图
+          droneData[id]._noLoc = true;
+          if(droneData[id].speed === undefined) droneData[id].speed = 0;
+          if(droneData[id].heading === undefined) droneData[id].heading = 0;
+          if(droneData[id].alt === undefined) droneData[id].alt = 0;
+          if(droneData[id].ua_type === undefined) droneData[id].ua_type = '未知';
+        } else {
+          // v2.4.4-fix: 收到有效坐标时清除 _noLoc
+          droneData[id]._noLoc = false;
+          // 相对高度优先，备选气压高度，再选大地高度
+          const relAlt = (loc.height !== undefined && loc.height !== null) ? loc.height : null;
+          const alt = (relAlt !== null && relAlt !== 0) ? relAlt : (loc.alt_baro || loc.alt_geo || 0);
+          const opLat = (msg.system && msg.system.operator_lat) ? msg.system.operator_lat : null;
+          const opLon = (msg.system && msg.system.operator_lon) ? msg.system.operator_lon : null;
+          const uaType = (msg.basic_id && msg.basic_id.ua_type) ? msg.basic_id.ua_type : '多旋翼';
+          updateDroneOnMap(id, loc.latitude, loc.longitude, alt,
+            (loc.speed_h||0).toFixed(1), (loc.direction||0).toFixed(0),
+            id, opLat, opLon, uaType);
+          // v2.2.16: 目标位置更新后，自己→目标连线已在 updateDroneOnMap 内刷新
+          if(droneData[id]){
+            droneData[id].alt_baro = loc.alt_baro || 0;
+            droneData[id].alt_geo = loc.alt_geo || 0;
+            droneData[id].height_ref = loc.height_ref || '';
+            droneData[id]._rel_alt = relAlt;
+            droneData[id]._has_rel = (relAlt !== null && relAlt !== 0);
+          }
+        }
+        // GB 46750 数据补充
+        if(msg.gb46750 && msg.gb46750.valid){
+          if(msg.gb46750.relative_height !== undefined) droneData[id].gb_rel_alt = msg.gb46750.relative_height;
+          if(msg.gb46750.geo_altitude !== undefined) droneData[id].gb_geo_alt = msg.gb46750.geo_altitude;
+          if(msg.gb46750.baro_altitude !== undefined) droneData[id].gb_baro_alt = msg.gb46750.baro_altitude;
+        }
+        // DJI DroneID 私有协议数据
+        if(msg.dji){
+          droneData[id].is_dji = true;
+          droneData[id].dji_serial = msg.dji.serial || '';
+          droneData[id].dji_model = msg.dji.model || '';
+          droneData[id].dji_model_code = msg.dji.model_code || '';
+          droneData[id].dji_type = msg.dji.type || '';
+          if(msg.dji.lat !== undefined) droneData[id].dji_lat = msg.dji.lat;
+          if(msg.dji.lon !== undefined) droneData[id].dji_lon = msg.dji.lon;
+          if(msg.dji.alt !== undefined) droneData[id].dji_alt = msg.dji.alt;
+          if(msg.dji.speed_h !== undefined) droneData[id].dji_speed_h = msg.dji.speed_h;
+          if(msg.dji.speed_v !== undefined) droneData[id].dji_speed_v = msg.dji.speed_v;
+          if(msg.dji.heading !== undefined) droneData[id].dji_heading = msg.dji.heading;
+          if(msg.dji.battery !== undefined) droneData[id].dji_battery = msg.dji.battery;
+          if(msg.dji.pilot_lat !== undefined) { droneData[id].dji_pilot_lat = msg.dji.pilot_lat; if(!droneData[id].op_lat) droneData[id].op_lat = msg.dji.pilot_lat; }
+          if(msg.dji.pilot_lon !== undefined) { droneData[id].dji_pilot_lon = msg.dji.pilot_lon; if(!droneData[id].op_lon) droneData[id].op_lon = msg.dji.pilot_lon; }
+          if(msg.dji.identification !== undefined) droneData[id].dji_id = msg.dji.identification;
+        }
+        // v2.2.12: 新目标提醒（SN 合并后才真正完整，此时提醒一次）
+        const _justCreated = (sn ? !_alertedHas(sn) : !_alertedHas(macId));
+        if(_justCreated && !droneData[id]._notified){
+          droneData[id]._notified = true;
+          _alertedAdd(id);
+          notifyNewTarget(droneData[id].sn || id, msg.rssi, droneData[id]._lastMAC || msg.mac);
+        }
+        // v2.2.12: 围栏告警（解析 JSON 结构化字段，不依赖 ALERT: 文本）
+        if(msg.geofence && msg.geofence.alert){
+          const gf = msg.geofence;
+          droneData[id]._geofence = gf;
+          // 只在首次进入围栏或升级告警时提醒，避免每次 update 都响
+          const prevZone = droneData[id]._lastAlertZone;
+          const prevLevel = droneData[id]._lastAlertLevel || 0;
+          if(prevZone !== gf.zone || gf.level > prevLevel){
+            droneData[id]._lastAlertZone = gf.zone;
+            droneData[id]._lastAlertLevel = gf.level;
+            notifyGeofence(droneData[id].sn || id, gf.zone, gf.level_name || ('level '+gf.level), {
+              rssi: msg.rssi,
+              lat: droneData[id].wgs_lat,
+              lon: droneData[id].wgs_lon,
+              alt: droneData[id].alt
+            });
+          }
+        } else if(droneData[id]){
+          // 飞出围栏，清除标记
+          if(droneData[id]._geofence && droneData[id]._geofence.alert){
+            droneData[id]._lastAlertZone = null;
+            droneData[id]._lastAlertLevel = 0;
+          }
+          droneData[id]._geofence = { alert:false, level:0, level_name:'safe', zone:'' };
+        }
+        updateTargetList(id);
+      }
+      return;
+    } catch(e){
+      addLog('error','[消息处理异常] '+e.message+' | evt='+(msg?msg.evt:'?')+' | '+text.substring(0,100));
+    }
+  }
+  // DRONE:id,lat,lon,alt,speed,heading,sn,op_lat,op_lon,ua_type
+  if(text.startsWith('DRONE:')){
+    const p=text.substring(6).split(',');
+    if(p.length>=4){
+      const id=p[0],lat=+p[1],lon=+p[2],alt=+p[3];
+      const speed=p[4]?+p[4]:0, heading=p[5]?+p[5]:0, sn=p[6]||id;
+      const opLat=p[7]?+p[7]:null, opLon=p[8]?+p[8]:null, uaType=p[9]||'多旋翼';
+      updateDroneOnMap(id,lat,lon,alt,speed.toFixed(1),heading.toFixed(0),sn,opLat,opLon,uaType);
+      updateTargetList(id);
+    }
+  }
+  // SELF_GPS:lat,lon,alt,sats[,hdop] — 板子自身GPS定位（每3秒一次）
+  // 未定位时固件发送 SELF_GPS:0,0,0,0
+  if(text.startsWith('SELF_GPS:')){
+    const p=text.substring(9).split(',');
+    if(p.length>=2){
+      const lat=+p[0],lon=+p[1],alt=p[2]?+p[2]:0,sats=parseInt(p[3])||0;
+      const hdop=p[4]?parseFloat(p[4]):0;
+      const valid = (lat!==0 && lon!==0 && sats>0);
+      updateBoardGpsUI(lat,lon,alt,sats,hdop,valid);
+    }
+  }
+  if(text.startsWith('ALERT:')){
+    const banner=document.getElementById('alertBanner');
+    document.getElementById('alertText').textContent='围栏告警: '+text.substring(6);
+    banner.classList.add('show');
+    setTimeout(()=>banner.classList.remove('show'),5000);
+  }
+}
+
+// ============ 目标列表渲染 ============
+function updateTargetList(id){
+  const count=Object.keys(droneData).length;
+  document.getElementById('targetListCount').textContent=count;
+  document.getElementById('activeTargets').textContent=count;
+  if(count === 0){
+    if(_lastTargetCount !== 0){
+      document.getElementById('targetListContainer').innerHTML='<div class="target-item" style="color:var(--text-secondary);justify-content:center">正在扫描空域...</div>';
+      _lastTargetCount = 0;
+    }
+    return;
+  }
+  // 目标数量没变且非强制刷新则跳过重建DOM，减少闪烁
+  if(count===_lastTargetCount && !id) return;
+  _lastTargetCount=count;
+  // v2.2.16: 按 RSSI 强度降序排序（信号最强=距离最近 排最前）；无 RSSI 的排末尾
+  const sortedIds = Object.keys(droneData).sort((a,b)=>{
+    const ra = droneData[a].rssi, rb = droneData[b].rssi;
+    if(ra===undefined && rb===undefined) return 0;
+    if(ra===undefined) return 1;
+    if(rb===undefined) return -1;
+    return rb - ra;
+  });
+  let html='';
+  sortedIds.slice(0,30).forEach(did=>{
+    const d=droneData[did];
+    if(!d) return;
+    const sn = d.sn || did;
+    const snShort=sn.length>16?sn.substring(0,14)+'..':sn;
+    const bi=lookupSN(sn, d._lastMAC);
+    const isDjiProto=d.is_dji===true;
+    const brandLabel=isDjiProto?(d.dji_model||'DJI'):(bi.model?bi.brand+' '+bi.model:bi.brand);
+    const brandCls=isDjiProto?'brand-dji':(bi.cls||'');
+    const srcTag=isDjiProto?'<span class="source-tag source-dji">协议解析</span>':'<span class="source-tag source-rid">RID侦测</span>';
+    // 有坐标显示坐标，无坐标显示"定位中"
+    let posStr;
+    if(d.gcj_lat !== undefined && d.gcj_lon !== undefined && !d._noLoc){
+      const altStr = d._has_rel ? ('R:'+Number(d.alt||0).toFixed(0)+'m') : (Number(d.alt||0).toFixed(0)+'m');
+      posStr = `${d.gcj_lat.toFixed(4)},${d.gcj_lon.toFixed(4)} ${altStr}`;
+    } else {
+      posStr = '<span style="color:var(--text-secondary)">📍 定位中...</span>';
+    }
+    // v2.2.16: RSSI 信号条（4格）。-50以内满格强，-70三格，-85两格，-100一格弱，<-100 0格
+    let rssiBars = '';
+    if(d.rssi !== undefined && d.rssi !== null){
+      const r = d.rssi;
+      let level, color;
+      if(r >= -60){ level=4; color='on'; }
+      else if(r >= -75){ level=3; color='on'; }
+      else if(r >= -88){ level=2; color='mid'; }
+      else if(r >= -100){ level=1; color='weak'; }
+      else { level=0; color='weak'; }
+      const heights=[6,9,12,14];
+      let bars='';
+      for(let i=0;i<4;i++){
+        const onCls = i<level ? color : '';
+        bars += `<span class="bar ${onCls}" style="height:${heights[i]}px"></span>`;
+      }
+      rssiBars = `<span class="rssi-bars" title="RSSI ${r}dBm">${bars}</span><span class="rssi-val">${r}</span>`;
+    }
+    // v2.2.16: 自己→目标方位距离
+    let dirStr = '';
+    if(selfGpsValid && selfWgsLat!==null && d.wgs_lat && !d._noLoc && !(d.wgs_lat===0&&d.wgs_lon===0)){
+      const distM = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+      const bear = calcBearing(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+      const distStr = distM>1000?(distM/1000).toFixed(2)+'km':distM.toFixed(0)+'m';
+      dirStr = `<span style="color:#e6a23c;font-size:10px;margin-left:4px" title="从我的位置到目标">→${bearingToCN(bear)} ${distStr}</span>`;
+    }
+    // v2.2.12: 围栏告警标识
+    let gfTag = '';
+    if(d._geofence && d._geofence.alert){
+      const lvlColor = d._geofence.level === 2 ? '#f56c6c' : (d._geofence.level === 3 ? '#e6a23c' : '#f56c6c');
+      gfTag = `<span title="${d._geofence.zone} (${d._geofence.level_name})" style="background:${lvlColor};color:#fff;font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;animation:alertPulse 1s infinite">⚠ ${d._geofence.zone.length>6?d._geofence.zone.substring(0,5)+'..':d._geofence.zone}</span>`;
+    }
+    html+=`<div class="target-item" onclick="showDetail('${did}')" style="${d._geofence&&d._geofence.alert?'background:rgba(245,108,108,0.08);border-left:3px solid #f56c6c':''}">
+      <div class="target-dot" style="${d._geofence&&d._geofence.alert?'background:#f56c6c;box-shadow:0 0 6px #f56c6c':''}"></div>
+      <span class="target-id">${did}</span>
+      ${gfTag}
+      <span class="brand-tag ${brandCls}" style="margin:0 6px;font-size:9px">${brandLabel}</span>
+      ${srcTag}
+      <span class="target-sn">${snShort}</span>
+      <span class="target-pos">${posStr}${dirStr}${rssiBars}</span>
+    </div>`;
+  });
+  if(count>30) html+=`<div class="target-item" style="color:var(--text-secondary);justify-content:center">... 还有 ${count-30} 个目标</div>`;
+  document.getElementById('targetListContainer').innerHTML=html;
+}
+
+// ============ 标签页/计时/日志 ============
+function switchTab(n,e){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  (e||window.event).target.closest('.tab').classList.add('active');
+  document.getElementById('tab-'+n).classList.add('active');
+  if(n==='alerts'){ _unreadAlerts=0; _updateAlertBadge(); }
+  // v2.3.0: 切换 tab 时触发对应渲染
+  if(n==='history'){ renderHistoryList(); }
+  if(n==='targets'){ setTimeout(()=>drawRadar(), 50); }
+  if(n==='status'){ setTimeout(()=>renderChannelBars(), 50); }
+}
+function startUptime(){uptimeSeconds=0;clearInterval(uptimeTimer);uptimeTimer=setInterval(()=>{uptimeSeconds++;const h=String(Math.floor(uptimeSeconds/3600)).padStart(2,'0'),m=String(Math.floor((uptimeSeconds%3600)/60)).padStart(2,'0'),s=String(uptimeSeconds%60).padStart(2,'0');document.getElementById('uptime').textContent=`${h}:${m}:${s}`},1000)}
+function stopUptime(){clearInterval(uptimeTimer);document.getElementById('uptime').textContent='00:00:00'}
+function addLog(type,msg){
+  const l=document.getElementById('logContent');
+  l.innerHTML+=`<div class="log-line ${type}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+  // 日志上限200行，防内存泄漏
+  while(l.children.length>200) l.removeChild(l.firstChild);
+  l.scrollTop=l.scrollHeight;
+}
+
+// ============ 导出 CSV ============ v2.3.0: 增强列
+function exportReport() {
+  const ids = Object.keys(droneData);
+  const now = new Date();
+  const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const serialNo = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+
+  let rows = '';
+  let alertRows = '';
+  let maxRssi = -200;
+  let totalTracks = 0;
+
+  ids.forEach((id, i) => {
+    const d = droneData[id];
+    const bi = lookupSN(d.sn, d._lastMAC);
+    const lat = d.wgs_lat?.toFixed(6) || '—';
+    const lon = d.wgs_lon?.toFixed(6) || '—';
+    const alt = (d._has_rel ? d.alt?.toFixed(1) : d.alt_geo?.toFixed(1)) || '—';
+    const spd = d.speed ? (d.speed*3.6).toFixed(1) : '—';
+    const hdg = d.heading || '—';
+    const rssi = d.rssi !== undefined ? d.rssi : '—';
+    if(d.rssi !== undefined && d.rssi > maxRssi) maxRssi = d.rssi;
+    totalTracks += (d.history ? d.history.length : 0);
+    const firstSeen = d.history && d.history.length ? new Date(d.history[0].t).toLocaleString() : '—';
+    const lastSeen = d.history && d.history.length ? new Date(d.history[d.history.length-1].t).toLocaleString() : '—';
+    const brand = bi.brand || '未知';
+    const model = bi.model || '—';
+    const uaType = uaTypeCN(d.ua_type);
+    const detect = d.is_dji ? 'DJI DroneID协议解析' : '标准RID侦测';
+    const opLoc = d.op_lat ? `${d.op_lat.toFixed(6)}, ${d.op_lon.toFixed(6)}` : '未上报';
+
+    rows += `<tr>
+      <td style="border:1px solid #999;padding:4px 8px">${i+1}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${d.sn||'—'}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${brand}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${model}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${uaType}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${lat}, ${lon}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${alt}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${spd}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${hdg}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${opLoc}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${rssi}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${detect}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${firstSeen}</td>
+      <td style="border:1px solid #999;padding:4px 8px">${lastSeen}</td>
+    </tr>`;
+  });
+
+  // 告警记录
+  if(typeof alertHistory !== 'undefined' && alertHistory.length > 0) {
+    alertHistory.forEach((a, i) => {
+      alertRows += `<tr>
+        <td style="border:1px solid #999;padding:4px 8px">${i+1}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${new Date(a.time).toLocaleString()}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.zone||'—'}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.level||'—'}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.sn||'—'}</td>
+      </tr>`;
+    });
+  }
+
+  const gpsTxt = (typeof gpsData !== 'undefined' && gpsData.lat) ?
+    `${gpsData.lat.toFixed(6)}, ${gpsData.lon.toFixed(6)}` : '未定位';
+  const fwVer = document.getElementById('firmwareVer')?.textContent || '—';
+
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>RID侦测报告</title>
+<style>body{font-family:"宋体",SimSun,serif;font-size:14px} table{border-collapse:collapse;width:100%} th{background:#f0f0f0;border:1px solid #999;padding:6px 8px;font-weight:bold} .title{text-align:center;font-size:22px;font-weight:bold;margin:20px 0} .subtitle{text-align:center;font-size:16px;margin-bottom:30px} .info-table{margin:10px 0 20px} .info-table td{border:1px solid #999;padding:6px 10px} .section{font-size:16px;font-weight:bold;margin:20px 0 10px;border-bottom:2px solid #333;padding-bottom:4px} .footer{margin-top:40px;font-size:12px;color:#666}</style>
+</head><body>
+<div class="title">无人机 Remote ID 侦测报告</div>
+<div class="subtitle">RID Detection Report</div>
+
+<table class="info-table">
+<tr><td style="border:1px solid #999;padding:6px 10px"><b>报告编号</b></td><td style="border:1px solid #999;padding:6px 10px">RID-${serialNo}</td>
+    <td style="border:1px solid #999;padding:6px 10px"><b>生成时间</b></td><td style="border:1px solid #999;padding:6px 10px">${ts}</td></tr>
+<tr><td style="border:1px solid #999;padding:6px 10px"><b>侦测设备</b></td><td style="border:1px solid #999;padding:6px 10px">RID Station S3 (T-Display-S3, BLE 蓝牙连接)</td>
+    <td style="border:1px solid #999;padding:6px 10px"><b>固件版本</b></td><td style="border:1px solid #999;padding:6px 10px">${fwVer}</td></tr>
+<tr><td style="border:1px solid #999;padding:6px 10px"><b>侦测位置</b></td><td style="border:1px solid #999;padding:6px 10px">${gpsTxt}</td>
+    <td style="border:1px solid #999;padding:6px 10px"><b>发现目标数</b></td><td style="border:1px solid #999;padding:6px 10px">${ids.length}</td></tr>
+</table>
+
+<div class="section">一、侦测目标明细</div>
+<table>
+<tr><th>序号</th><th>SN/序列号</th><th>品牌</th><th>型号</th><th>类型</th><th>坐标(WGS-84)</th><th>高度(m)</th><th>速度(km/h)</th><th>航向(°)</th><th>飞手位置</th><th>RSSI(dBm)</th><th>发现方式</th><th>首次发现</th><th>最后更新</th></tr>
+${rows || '<tr><td colspan="14" style="border:1px solid #999;padding:20px;text-align:center;color:#999">本次未侦测到无人机目标</td></tr>'}
+</table>
+
+<div class="section">二、围栏告警记录</div>
+${alertRows ? `<table><tr><th>序号</th><th>时间</th><th>区域</th><th>告警等级</th><th>目标SN</th></tr>${alertRows}</table>` : '<p style="color:#666">本次无围栏告警记录。</p>'}
+
+<div class="section">三、统计摘要</div>
+<table class="info-table">
+<tr><td style="border:1px solid #999;padding:6px 10px">侦测目标总数</td><td style="border:1px solid #999;padding:6px 10px">${ids.length} 架</td>
+    <td style="border:1px solid #999;padding:6px 10px">累计轨迹点数</td><td style="border:1px solid #999;padding:6px 10px">${totalTracks} 个</td></tr>
+<tr><td style="border:1px solid #999;padding:6px 10px">最强信号RSSI</td><td style="border:1px solid #999;padding:6px 10px">${maxRssi > -200 ? maxRssi+' dBm' : '—'}</td>
+    <td style="border:1px solid #999;padding:6px 10px">围栏告警数</td><td style="border:1px solid #999;padding:6px 10px">${(typeof alertHistory!=='undefined')?alertHistory.length:0} 次</td></tr>
+</table>
+
+<div class="footer">
+<p>本报告由 RID Station S3 蓝牙侦测设备自动生成，数据来源于无人机广播的 Remote ID 信号（ASTM F3411 / GB42590-2023 / GB46750-2025 / DJI DroneID）。</p>
+<p>坐标系统：WGS-84。时间：北京时间 (UTC+8)。</p>
+<p style="margin-top:30px">侦测人员签字：________________　　　审核人签字：________________</p>
+<p style="margin-top:10px">单位：大连市公安局　　　日期：______年____月____日</p>
+</div>
+</body></html>`;
+
+  const blob = new Blob(['\ufeff'+html], {type:'application/msword'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `RID侦测报告_${serialNo}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
+  addLog('success', `[导出] 已生成执法报告（${ids.length}个目标）`);
+}
+
+function exportCSV() {
+  const ids = Object.keys(droneData);
+  if(ids.length === 0) { alert('暂无侦测数据可导出'); return; }
+
+  const headers = ['序号','设备编号','SN/UAS_ID','品牌','型号','无人机类型','发现方式',
+    'WGS纬度','WGS经度','GCJ纬度','GCJ经度','相对高度(m)','气压高度(m)','大地高度(m)',
+    '飞行速度(m/s)','航速(km/h)','航向角(°)',
+    '飞手WGS纬度','飞手WGS经度','飞手GCJ纬度','飞手GCJ经度','距飞手距离(m)',
+    '首次发现','最后更新','轨迹点数',
+    '平均RSSI(dBm)','最后RSSI(dBm)','WiFi信道'];
+
+  const rows = ids.map((id, i) => {
+    const d = droneData[id];
+    const bi = lookupSN(d.sn, d._lastMAC);
+    const opGcj = (d.op_lat && d.op_lon) ? wgs84ToGcj02(d.op_lon, d.op_lat) : [null, null];
+    const dist = (d.op_lat && d.op_lon) ? calcDistance(d.wgs_lat, d.wgs_lon, d.op_lat, d.op_lon) : '';
+    const firstSeen = d.history && d.history.length > 0 ? new Date(d.history[0].t).toLocaleString() : '';
+    const lastSeen = d.history && d.history.length > 0 ? new Date(d.history[d.history.length-1].t).toLocaleString() : '';
+    // v2.3.0: 计算平均/最后 RSSI、信道
+    let avgRssi = '', lastRssi = '';
+    if(d._rssiHist && d._rssiHist.length){
+      const sum = d._rssiHist.reduce((s,p)=>s+p.r, 0);
+      avgRssi = (sum / d._rssiHist.length).toFixed(1);
+      lastRssi = d._rssiHist[d._rssiHist.length-1].r;
+    } else if(d.rssi !== undefined && d.rssi !== null){
+      avgRssi = d.rssi; lastRssi = d.rssi;
+    }
+    const channel = d.channel || '';
+    return [
+      i+1, id, d.sn, bi.brand, bi.model||'', uaTypeCN(d.ua_type), d.is_dji?'DJI DroneID协议解析':'标准RID侦测',
+      d.wgs_lat?.toFixed(6)||'', d.wgs_lon?.toFixed(6)||'',
+      d.gcj_lat?.toFixed(6)||'', d.gcj_lon?.toFixed(6)||'',
+      (d._has_rel ? d.alt?.toFixed(1) : '')||'', d.alt_baro?.toFixed(1)||'', d.alt_geo?.toFixed(1)||'',
+      d.speed||'', (d.speed ? (d.speed*3.6).toFixed(1) : ''),
+      d.heading||'',
+      d.op_lat?.toFixed(6)||'', d.op_lon?.toFixed(6)||'',
+      opGcj[1]?.toFixed(6)||'', opGcj[0]?.toFixed(6)||'',
+      dist, firstSeen, lastSeen,
+      d.history ? d.history.length : 0,
+      avgRssi, lastRssi, channel
+    ];
+  });
+
+  // 生成 CSV（带 BOM 以支持 Excel 中文显示）
+  const BOM = '\uFEFF';
+  const csvContent = BOM + [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const now = new Date();
+  const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+  a.download = `RID侦测记录_${ts}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  addLog('success', `[导出] 已导出 ${rows.length} 条侦测记录`);
+}
+
+// ============ BLE 配对 ============
+let isPaired = false;
+let pairCodeExpected = '';
+
+function showPairDialog() {
+  isPaired = false;
+  document.getElementById('pairInput').value = '';
+  document.getElementById('pairInput').classList.remove('error');
+  document.getElementById('pairOverlay').classList.add('show');
+  setTimeout(() => document.getElementById('pairInput').focus(), 300);
+  // ★ 配对超时60秒自动关闭
+  if(_pairTimer) clearTimeout(_pairTimer);
+  _pairTimer = setTimeout(()=>{
+    if(!isPaired && document.getElementById('pairOverlay').classList.contains('show')){
+      document.getElementById('pairOverlay').classList.remove('show');
+      addLog('warn','[配对] 超时未输入，已关闭配对弹窗');
+    }
+    _pairTimer=null;
+  }, 60000);
+}
+
+function submitPair() {
+  const input = document.getElementById('pairInput').value.trim();
+  if(input.length !== 4 || !/^\d{4}$/.test(input)) {
+    document.getElementById('pairInput').classList.add('error');
+    setTimeout(() => document.getElementById('pairInput').classList.remove('error'), 500);
+    return;
+  }
+  // 发送配对码到 ESP32 验证
+  addLog('info', `[配对] 发送配对码: ${input}`);
+  sendCmd(`SIM_PAIR ${input}`);
+  // 等待固件回复 PAIR_OK 或 PAIR_FAIL
+  // 由 parseResp() 处理响应
+  pairCodeExpected = input;
+}
+
+function onPairResult(ok) {
+  // 清除配对超时计时器
+  if(_pairTimer){clearTimeout(_pairTimer);_pairTimer=null}
+  document.getElementById('pairOverlay').classList.remove('show');
+  if(ok) {
+    isPaired = true;
+    addLog('success', '[配对] 配对成功，设备已绑定');
+    // 更新 badge 为"已连接(已配对)"
+    const badge=document.getElementById('statusBadge');
+    badge.textContent='已连接(已配对)';
+    badge.className='badge connected';
+    // 配对成功后开始设备运行计时，被动接收侦测数据
+    startUptime();
+    addLog('info','[系统] 侦测已启动，正在扫描空域...');
+    document.getElementById('targetListContainer').innerHTML='<div class="target-item" style="color:var(--text-secondary);justify-content:center">正在扫描空域...</div>';
+  } else {
+    isPaired = false;
+    addLog('error', '[配对] 配对失败，配对码错误');
+    alert('配对码错误，请检查设备屏幕上的数字');
+    disconnect();
+  }
+}
+
+// ============ 过期目标自动清理 ============
+function startStaleCleanTimer(){
+  if(_staleCleanTimer) clearInterval(_staleCleanTimer);
+  _staleCleanTimer = setInterval(()=>{
+    if(!isConnected) return;
+    const now = Date.now();
+    let removed = 0;
+    Object.keys(droneData).forEach(id=>{
+      if(droneData[id]._lastSeen && now - droneData[id]._lastSeen > 30000){
+        // 30秒未更新，视为信号丢失
+        try{ addAlertHistory('timeout', droneData[id].sn || id, {rssi: droneData[id].rssi}); }catch(e){}
+        removeTarget(id);
+        removed++;
+      }
+    });
+    if(removed > 0){
+      addLog('warn',`[清理] 移除 ${removed} 个超时目标（>30s无数据）`);
+      document.getElementById('mapTargetCount').textContent = Object.keys(droneMarkers).length;
+      document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
+      updateTargetList(Object.keys(droneData)[0] || '');
+    }
+  }, 10000); // 每10秒扫描一次
+}
+
+
+// =====================================================================
+// ============ v2.3.0: 雷达视图 / IndexedDB 轨迹 / 信道占用 / KML ============
+// =====================================================================
+
+// ---------------- 雷达视图 ----------------
+let _radarCanvas = null, _radarCtx = null, _radarDpr = 1;
+let _radarTimer = null, _radarHoverId = null;
+const _radarHitAreas = []; // {id, x, y, r}
+
+function rssiColor(r){
+  if(r === undefined || r === null || isNaN(r)) return '#909399';
+  if(r >= -60) return '#67c23a';
+  if(r >= -75) return '#00e5ff';
+  if(r >= -88) return '#ffd54f';
+  if(r >= -100) return '#ff9800';
+  return '#f56c6c';
+}
+function rssiRadius(r){
+  if(r === undefined || r === null || isNaN(r)) return 5;
+  if(r >= -60) return 8;
+  if(r >= -75) return 7;
+  if(r >= -88) return 6;
+  if(r >= -100) return 5;
+  return 4;
+}
+
+function initRadar(){
+  _radarCanvas = document.getElementById('radarCanvas');
+  if(!_radarCanvas) return;
+  _radarCtx = _radarCanvas.getContext('2d');
+  const wrap = document.getElementById('radarWrap');
+  // v2.3.2: tab 隐藏时 clientWidth=0，用合理默认值，杜绝负尺寸导致椭圆
+  let size = 280;
+  if(wrap && wrap.clientWidth > 40) size = Math.min(wrap.clientWidth - 16, 300);
+  _radarDpr = window.devicePixelRatio || 1;
+  _radarCanvas.style.width = size + 'px';
+  _radarCanvas.style.height = size + 'px';
+  _radarCanvas.width = Math.round(size * _radarDpr);
+  _radarCanvas.height = Math.round(size * _radarDpr);
+  _radarCtx.setTransform(_radarDpr, 0, 0, _radarDpr, 0, 0);
+  // 事件
+  if(!_radarCanvas._bound){
+    _radarCanvas._bound = true;
+    _radarCanvas.addEventListener('mousemove', onRadarMouseMove);
+    _radarCanvas.addEventListener('mouseleave', ()=>{
+      _radarHoverId = null;
+      const tip = document.getElementById('radarTip');
+      if(tip) tip.classList.remove('show');
+    });
+    _radarCanvas.addEventListener('click', onRadarClick);
+    // 触屏支持
+    _radarCanvas.addEventListener('touchstart', e=>{
+      if(e.touches.length){
+        const t = e.touches[0];
+        const rect = _radarCanvas.getBoundingClientRect();
+        onRadarHoverAt(t.clientX - rect.left, t.clientY - rect.top, true);
+      }
+    }, {passive:true});
+  }
+}
+
+function drawRadar(){
+  if(!_radarCanvas || !_radarCtx) initRadar();
+  if(!_radarCanvas || !_radarCtx) return;
+  const wrap = document.getElementById('radarWrap');
+  let wantSize = 280;
+  if(wrap && wrap.clientWidth > 40) wantSize = Math.min(wrap.clientWidth - 16, 300);
+  const curSize = parseInt(_radarCanvas.style.width)||0;
+  // v2.3.2: 尺寸不对（含初次隐藏后显示）时强制重设画布
+  if(Math.abs(wantSize - curSize) > 4 || curSize < 50){
+    _radarCanvas.style.width = wantSize + 'px';
+    _radarCanvas.style.height = wantSize + 'px';
+    _radarCanvas.width = Math.round(wantSize * _radarDpr);
+    _radarCanvas.height = Math.round(wantSize * _radarDpr);
+    _radarCtx.setTransform(_radarDpr, 0, 0, _radarDpr, 0, 0);
+  }
+  const ctx = _radarCtx;
+  const W = wantSize, H = wantSize;
+  const cx = W/2, cy = H/2;
+  const R = Math.min(W,H)/2 - 14;
+  ctx.clearRect(0,0,W,H);
+  _radarHitAreas.length = 0;
+
+  // 背景深色 + 径向渐晕
+  const bg = ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+  bg.addColorStop(0, '#0e2d4a');
+  bg.addColorStop(0.7, '#081c30');
+  bg.addColorStop(1, '#030a14');
+  ctx.fillStyle = bg;
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.fill();
+
+  // 外圈刻度
+  ctx.strokeStyle = 'rgba(80,180,255,0.35)'; ctx.lineWidth = 1;
+  for(let a=0; a<360; a+=30){
+    const rad = (a-90)*Math.PI/180;
+    const x1 = cx + (R-4)*Math.cos(rad), y1 = cy + (R-4)*Math.sin(rad);
+    const x2 = cx + R*Math.cos(rad), y2 = cy + R*Math.sin(rad);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  for(let a=0; a<360; a+=10){
+    const rad = (a-90)*Math.PI/180;
+    const x1 = cx + (R-2)*Math.cos(rad), y1 = cy + (R-2)*Math.sin(rad);
+    const x2 = cx + R*Math.cos(rad), y2 = cy + R*Math.sin(rad);
+    ctx.strokeStyle = 'rgba(80,180,255,0.18)';
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+
+  const ids = Object.keys(droneData);
+  const gpsMode = selfGpsValid && selfWgsLat !== null;
+  let maxDist = 0;
+  const validPts = [];
+  ids.forEach(id=>{
+    const d = droneData[id];
+    if(gpsMode && d.wgs_lat && d.wgs_lon && !d._noLoc && !(d.wgs_lat===0&&d.wgs_lon===0)){
+      const dist = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+      if(isFinite(dist)){ validPts.push({id, d, dist}); if(dist>maxDist) maxDist=dist; }
+    }
+  });
+  let rangeM = 0;
+  if(gpsMode && validPts.length) rangeM = Math.max(100, Math.min(20000, maxDist*1.2));
+
+  // 距离环（4圈）
+  ctx.strokeStyle = 'rgba(80,180,255,0.22)'; ctx.lineWidth = 1;
+  for(let i=1;i<=4;i++){
+    ctx.beginPath(); ctx.arc(cx,cy,R*i/4,0,Math.PI*2); ctx.stroke();
+  }
+  // 距离标签（右下角沿斜线）
+  if(gpsMode && validPts.length){
+    ctx.fillStyle = 'rgba(140,210,255,0.7)'; ctx.font = '9px sans-serif'; ctx.textAlign='right';
+    for(let i=1;i<=4;i++){
+      const m = rangeM*i/4;
+      const label = m>=1000 ? (m/1000).toFixed(m>=10000?0:1)+'km' : Math.round(m)+'m';
+      const rr = R*i/4;
+      ctx.fillText(label, cx + rr*0.707 - 2, cy + rr*0.707 - 2);
+    }
+  }
+  // 十字线
+  ctx.strokeStyle = 'rgba(80,180,255,0.2)';
+  ctx.beginPath();
+  ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R);
+  ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy);
+  ctx.stroke();
+  // 对角线
+  ctx.strokeStyle = 'rgba(80,180,255,0.1)';
+  ctx.beginPath();
+  ctx.moveTo(cx-R*0.707,cy-R*0.707); ctx.lineTo(cx+R*0.707,cy+R*0.707);
+  ctx.moveTo(cx+R*0.707,cy-R*0.707); ctx.lineTo(cx-R*0.707,cy+R*0.707);
+  ctx.stroke();
+
+  // 扫描扇形（持续旋转）
+  const sweepAngle = (Date.now()/1800) % (Math.PI*2);
+  const grad = ctx.createConicGradient ? ctx.createConicGradient(sweepAngle, cx, cy) : null;
+  if(grad){
+    grad.addColorStop(0, 'rgba(80,220,255,0.55)');
+    grad.addColorStop(0.06, 'rgba(80,220,255,0.25)');
+    grad.addColorStop(0.18, 'rgba(80,220,255,0)');
+    grad.addColorStop(1, 'rgba(80,220,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,sweepAngle-0.6,sweepAngle); ctx.closePath(); ctx.fill();
+  }
+  // 扫描线亮边
+  ctx.strokeStyle = 'rgba(150,240,255,0.9)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+R*Math.cos(sweepAngle), cy+R*Math.sin(sweepAngle));
+  ctx.stroke();
+
+  // N/E/S/W 方位标
+  ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('N', cx, cy-R+12);
+  ctx.fillStyle = 'rgba(200,220,255,0.6)'; ctx.font = '10px sans-serif';
+  ctx.fillText('E', cx+R-7, cy+3);
+  ctx.fillText('S', cx, cy+R-5);
+  ctx.fillText('W', cx-R+8, cy+3);
+
+  // 状态条（DOM）
+  const statEl = document.getElementById('radarStatus');
+  if(statEl){
+    if(ids.length === 0){
+      statEl.textContent = '⏳ 空域扫描中...';
+      statEl.classList.remove('ok');
+    } else if(!gpsMode){
+      statEl.textContent = `⚠ 无GPS · ${ids.length}个目标按信号强度分布`;
+      statEl.classList.remove('ok');
+    } else if(validPts.length === 0){
+      statEl.textContent = `⚠ GPS已定位但目标无位置 · ${ids.length}个信号`;
+      statEl.classList.remove('ok');
+    } else {
+      statEl.textContent = `🛰️ ${validPts.length}个目标 · 量程 ${rangeM>=1000?(rangeM/1000).toFixed(1)+'km':Math.round(rangeM)+'m'}`;
+      statEl.classList.add('ok');
+    }
+  }
+
+  // 画目标
+  if(ids.length === 0){
+    ctx.fillStyle = 'rgba(180,220,255,0.6)'; ctx.font = '12px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('SEARCHING...', cx, cy+4);
+  } else if(!gpsMode){
+    ids.forEach((id, i)=>{
+      const d = droneData[id];
+      const rssi = d.rssi !== undefined ? d.rssi : -100;
+      const norm = Math.max(0, Math.min(1, (rssi + 100) / 60));
+      const r = R * (1 - 0.72*norm + 0.06);
+      const angle = -Math.PI/2 + (Math.PI*2 * i / ids.length);
+      const px = cx + r * Math.cos(angle);
+      const py = cy + r * Math.sin(angle);
+      drawRadarDot(ctx, id, d, px, py, rssi);
+    });
+  } else if(validPts.length === 0){
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '11px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('目标无位置信息', cx, cy+4);
+  } else {
+    validPts.forEach(p=>{
+      const bearing = calcBearing(selfWgsLat,selfWgsLon,p.d.wgs_lat,p.d.wgs_lon);
+      const r = R * Math.min(1, p.dist / rangeM);
+      const angle = (bearing - 90) * Math.PI/180;
+      const px = cx + r * Math.cos(angle);
+      const py = cy + r * Math.sin(angle);
+      drawRadarDot(ctx, p.id, p.d, px, py, p.d.rssi);
+    });
+  }
+
+  // 中心（自己）
+  ctx.fillStyle = '#409eff';
+  ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2); ctx.stroke();
+  // 中心呼吸光环
+  const pulse = (Date.now()%1600)/1600;
+  ctx.strokeStyle = `rgba(64,158,255,${0.5*(1-pulse)})`; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx,cy,6+10*pulse,0,Math.PI*2); ctx.stroke();
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawRadarDot(ctx, id, d, px, py, rssi){
+  const color = rssiColor(rssi);
+  const radius = rssiRadius(rssi);
+  // 外发光
+  const glow = ctx.createRadialGradient(px,py,0,px,py,radius*2.5);
+  glow.addColorStop(0, color+'cc');
+  glow.addColorStop(1, color+'00');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(px,py,radius*2.5,0,Math.PI*2); ctx.fill();
+  // 点
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(px,py,radius,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(px,py,radius,0,Math.PI*2); ctx.stroke();
+  // 标签
+  let label = '';
+  const sn = d.sn || id;
+  if(sn.length >= 6) label = sn.slice(-6);
+  else label = sn;
+  ctx.font = '9px monospace'; ctx.textAlign='left';
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillText(label, px+radius+2, py+3);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(label, px+radius+1, py+2);
+  _radarHitAreas.push({id, x:px, y:py, r:Math.max(radius+4, 10)});
+}
+
+function onRadarHoverAt(x, y, isTouch){
+  let hit = null;
+  for(let i=0;i<_radarHitAreas.length;i++){
+    const h = _radarHitAreas[i];
+    const dx = x-h.x, dy = y-h.y;
+    if(dx*dx+dy*dy <= h.r*h.r){ hit = h; break; }
+  }
+  const tip = document.getElementById('radarTip');
+  if(hit){
+    _radarHoverId = hit.id;
+    const d = droneData[hit.id];
+    if(d){
+      let distStr = '--';
+      if(selfGpsValid && selfWgsLat && d.wgs_lat && !d._noLoc){
+        const dist = calcDistanceM(selfWgsLat,selfWgsLon,d.wgs_lat,d.wgs_lon);
+        distStr = dist>1000?(dist/1000).toFixed(2)+'km':dist.toFixed(0)+'m';
+      }
+      const sn = d.sn || hit.id;
+      const rssi = d.rssi!==undefined?d.rssi+' dBm':'--';
+      tip.innerHTML = `<b>${sn}</b><br>RSSI: ${rssi}<br>距离: ${distStr}`;
+      const wrap = document.getElementById('radarWrap');
+      const wrapRect = wrap.getBoundingClientRect();
+      tip.style.left = (hit.x + 12) + 'px';
+      tip.style.top = (hit.y - 10) + 'px';
+      tip.classList.add('show');
+    }
+  } else {
+    _radarHoverId = null;
+    if(tip) tip.classList.remove('show');
+  }
+}
+function onRadarMouseMove(e){
+  const rect = _radarCanvas.getBoundingClientRect();
+  onRadarHoverAt(e.clientX - rect.left, e.clientY - rect.top, false);
+}
+function onRadarClick(e){
+  const rect = _radarCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  for(let i=0;i<_radarHitAreas.length;i++){
+    const h = _radarHitAreas[i];
+    const dx=x-h.x, dy=y-h.y;
+    if(dx*dx+dy*dy <= h.r*h.r){ showDetail(h.id); return; }
+  }
+}
+function startRadarTimer(){
+  if(_radarTimer) return;
+  // 用 rAF 约 60fps 驱动扫描动画，tab 不可见时浏览器自动暂停
+  const loop = ()=>{
+    const tab = document.getElementById('tab-targets');
+    if(tab && tab.classList.contains('active')) drawRadar();
+    _radarTimer = requestAnimationFrame(loop);
+  };
+  _radarTimer = requestAnimationFrame(loop);
+}
+
+// ---------------- 信道占用 ----------------
+const channelStats = {};
+const CH_TREND_MAX = 6;
+let _channelTrend = [];
+let _channelSnapshotTimer = null;
+let _channelRenderTimer = null;
+let _channelLastReset = Date.now();
+
+function recordChannelPkt(ch){
+  const c = parseInt(ch);
+  if(!c || c<1 || c>13) return;
+  if(!channelStats[c]) channelStats[c] = {count:0, lastReset: Date.now()};
+  channelStats[c].count++;
+}
+function snapshotChannelStats(){
+  const snap = {t: Date.now(), ch:{}};
+  for(let c=1;c<=13;c++){
+    snap.ch[c] = channelStats[c] ? channelStats[c].count : 0;
+  }
+  _channelTrend.push(snap);
+  if(_channelTrend.length > CH_TREND_MAX) _channelTrend.shift();
+  // 重置计数
+  for(let c=1;c<=13;c++){
+    if(channelStats[c]){ channelStats[c].count = 0; channelStats[c].lastReset = Date.now(); }
+  }
+  _channelLastReset = Date.now();
+}
+function renderChannelBars(){
+  const box = document.getElementById('channelBars');
+  if(!box) return;
+  let html = '';
+  let maxCount = 1;
+  for(let c=1;c<=13;c++){
+    const n = channelStats[c] ? channelStats[c].count : 0;
+    if(n > maxCount) maxCount = n;
+  }
+  for(let c=1;c<=13;c++){
+    const n = channelStats[c] ? channelStats[c].count : 0;
+    const pct = maxCount>0 ? (n/maxCount*100) : 0;
+    const totalAll = Object.values(channelStats).reduce((s,v)=>s+(v?v.count:0),0);
+    const sharePct = totalAll>0 ? (n/totalAll*100).toFixed(0) : 0;
+    let cls = '';
+    if(c === 6) cls = 'hi';
+    else if(n >= 50) cls = 'hi';
+    else if(n >= 10) cls = 'mid';
+    else if(n > 0) cls = 'lo';
+    const barColor = c===6 ? '#409eff' : (n>=50?'#409eff':n>=10?'#a0cfff':n>0?'#c0c4cc':'transparent');
+    html += `<div class="ch-col">
+      <div class="ch-tip">信道${c}: ${n}包 (${sharePct}%)</div>
+      ${n>0?`<span class="ch-pkts">${n}</span>`:''}
+      <div class="ch-bar ${cls}" style="height:${Math.max(pct, n>0?6:0)}%;background:${barColor}"></div>
+      <div class="ch-num">${c}</div>
+    </div>`;
+  }
+  box.innerHTML = html;
+}
+function startChannelTimers(){
+  if(_channelSnapshotTimer) return;
+  _channelSnapshotTimer = setInterval(snapshotChannelStats, 10000);
+  _channelRenderTimer = setInterval(()=>{
+    const tab = document.getElementById('tab-status');
+    if(tab && tab.classList.contains('active')) renderChannelBars();
+  }, 2000);
+  // 立即渲染一次骨架
+  renderChannelBars();
+}
+
+// ---------------- IndexedDB 轨迹持久化 ----------------
+const IDB_NAME = 'rid_monitor_db';
+const IDB_STORE = 'tracks';
+const IDB_VERSION = 1;
+const IDB_MAX_RECORDS = 500;
+let _idb = null, _idbFailed = false, _memHistoryCache = null;
+
+function openIdb(){
+  return new Promise((resolve, reject)=>{
+    if(_idb) return resolve(_idb);
+    if(_idbFailed || typeof indexedDB === 'undefined'){
+      if(!_memHistoryCache) _memHistoryCache = [];
+      return reject(new Error('IndexedDB unavailable'));
+    }
+    try{
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = (e)=>{
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(IDB_STORE)){
+          const store = db.createObjectStore(IDB_STORE, {keyPath:'id'});
+          store.createIndex('sn', 'sn', {unique:false});
+          store.createIndex('lastSeen', 'lastSeen', {unique:false});
+        }
+      };
+      req.onsuccess = (e)=>{ _idb = e.target.result; resolve(_idb); };
+      req.onerror = (e)=>{ _idbFailed = true; reject(e.target.error); };
+    }catch(err){
+      _idbFailed = true; reject(err);
+    }
+  });
+}
+function idbTx(mode){
+  return openIdb().then(db=>db.transaction(IDB_STORE, mode).objectStore(IDB_STORE));
+}
+function idbPut(rec){
+  return idbTx('readwrite').then(store=>new Promise((res,rej)=>{
+    const r = store.put(rec);
+    r.onsuccess = ()=>res();
+    r.onerror = ()=>rej(r.error);
+  })).then(()=>idbPruneOld());
+}
+function idbPruneOld(){
+  return idbTx('readwrite').then(store=>new Promise((res,rej)=>{
+    const cntReq = store.count();
+    cntReq.onsuccess = ()=>{
+      const n = cntReq.result;
+      if(n <= IDB_MAX_RECORDS) return res();
+      const idx = store.index('lastSeen');
+      const cursorReq = idx.openCursor(null, 'next'); // 最早 first
+      let toDelete = n - IDB_MAX_RECORDS;
+      cursorReq.onsuccess = (e)=>{
+        const cursor = e.target.result;
+        if(cursor && toDelete>0){
+          cursor.delete();
+          toDelete--;
+          cursor.continue();
+        } else res();
+      };
+      cursorReq.onerror = ()=>rej(cursorReq.error);
+    };
+    cntReq.onerror = ()=>rej(cntReq.error);
+  }));
+}
+function idbGetAll(){
+  return idbTx('readonly').then(store=>new Promise((res,rej)=>{
+    const r = store.getAll();
+    r.onsuccess = ()=>res(r.result || []);
+    r.onerror = ()=>rej(r.error);
+  }));
+}
+function idbGet(id){
+  return idbTx('readonly').then(store=>new Promise((res,rej)=>{
+    const r = store.get(id);
+    r.onsuccess = ()=>res(r.result || null);
+    r.onerror = ()=>rej(r.error);
+  }));
+}
+function idbDelete(id){
+  return idbTx('readwrite').then(store=>new Promise((res,rej)=>{
+    const r = store.delete(id);
+    r.onsuccess = ()=>res();
+    r.onerror = ()=>rej(r.error);
+  }));
+}
+function idbClear(){
+  return idbTx('readwrite').then(store=>new Promise((res,rej)=>{
+    const r = store.clear();
+    r.onsuccess = ()=>res();
+    r.onerror = ()=>rej(r.error);
+  }));
+}
+function idbFindBySn(sn){
+  return idbTx('readonly').then(store=>new Promise((res,rej)=>{
+    const idx = store.index('sn');
+    const r = idx.getAll(sn);
+    r.onsuccess = ()=>{
+      const arr = r.result || [];
+      arr.sort((a,b)=>(b.lastSeen||0)-(a.lastSeen||0));
+      res(arr[0] || null);
+    };
+    r.onerror = ()=>rej(r.error);
+  }));
+}
+
+// 内存降级版
+function _memPut(rec){
+  if(!_memHistoryCache) _memHistoryCache = [];
+  const idx = _memHistoryCache.findIndex(x=>x.id===rec.id);
+  if(idx>=0) _memHistoryCache[idx] = rec; else _memHistoryCache.push(rec);
+  if(_memHistoryCache.length > IDB_MAX_RECORDS){
+    _memHistoryCache.sort((a,b)=>(a.lastSeen||0)-(b.lastSeen||0));
+    _memHistoryCache.splice(0, _memHistoryCache.length - IDB_MAX_RECORDS);
+  }
+}
+function _memGetAll(){
+  return Promise.resolve(_memHistoryCache ? _memHistoryCache.slice() : []);
+}
+function _memDelete(id){
+  if(_memHistoryCache) _memHistoryCache = _memHistoryCache.filter(x=>x.id!==id);
+  return Promise.resolve();
+}
+function _memClear(){ _memHistoryCache = []; return Promise.resolve(); }
+function _memFindBySn(sn){
+  const arr = (_memHistoryCache||[]).filter(x=>x.sn===sn).sort((a,b)=>(b.lastSeen||0)-(a.lastSeen||0));
+  return Promise.resolve(arr[0] || null);
+}
+
+function histPut(rec){
+  return idbPut(rec).catch(e=>{
+    console.warn('[history] IndexedDB 写入失败，使用内存缓存', e && e.message);
+    _memPut(rec);
+  });
+}
+function histGetAll(){
+  return idbGetAll().catch(e=>{
+    console.warn('[history] IndexedDB 读取失败，使用内存缓存', e && e.message);
+    return _memGetAll();
+  });
+}
+function histDelete(id){
+  return idbDelete(id).catch(()=>_memDelete(id));
+}
+function histClear(){
+  return idbClear().catch(()=>_memClear());
+}
+function findLatestTrackBySn(sn){
+  if(!sn) return Promise.resolve(null);
+  return idbFindBySn(sn).catch(()=>_memFindBySn(sn));
+}
+
+// 构造历史记录并保存
+function saveTrackToHistory(id){
+  const d = droneData[id];
+  if(!d) return;
+  const sn = d.sn || id;
+  const firstSeen = d._firstSeen || (d.history && d.history.length ? d.history[0].t : Date.now());
+  const lastSeen = d._lastSeen || Date.now();
+  // 没轨迹也存基本信息（任务要求：无GPS的肩灯只存基本信息+RSSI）
+  const trackPoints = (d.history || []).map(p=>({lat:p.lat, lng:p.lng, t:p.t, alt:p.alt||null, speed:p.speed||null}));
+  // 平均/最大高度
+  let maxAlt = 0;
+  trackPoints.forEach(p=>{ if(p.alt && p.alt>maxAlt) maxAlt = p.alt; });
+  // RSSI 统计
+  const rssiHist = (d._rssiHist || []).map(p=>({t:p.t, r:p.r}));
+  let avgRssi = null, lastRssi = d.rssi !== undefined ? d.rssi : null;
+  if(rssiHist.length){
+    avgRssi = rssiHist.reduce((s,p)=>s+p.r, 0) / rssiHist.length;
+  }
+  const bi = lookupSN(sn, d._lastMAC);
+  const rec = {
+    id: sn + '_' + firstSeen,
+    sn: sn,
+    brand: bi.brand || '',
+    model: bi.model || '',
+    firstSeen: firstSeen,
+    lastSeen: lastSeen,
+    rssiHist: rssiHist,
+    trackPoints: trackPoints,
+    maxAlt: maxAlt,
+    avgRssi: avgRssi,
+    lastRssi: lastRssi,
+    channel: d.channel || null
+  };
+  histPut(rec).then(()=>{
+    addLog('info', `[历史] 已保存轨迹: ${sn} (${trackPoints.length}点)`);
+    // 如果历史 tab 可见，则刷新
+    const tab = document.getElementById('tab-history');
+    if(tab && tab.classList.contains('active')) renderHistoryList();
+    const cnt = document.getElementById('histCount');
+    if(cnt) histGetAll().then(arr=>cnt.textContent = arr.length);
+  }).catch(e=>addLog('warn','[历史] 保存失败: '+e.message));
+}
+
+function _fmtHistTime(ts){
+  if(!ts) return '--';
+  const d = new Date(ts);
+  const p = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function _fmtDur(ms){
+  if(!ms || ms<0) return '--';
+  const s = Math.round(ms/1000);
+  if(s<60) return s+'秒';
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
+  return (h?h+'小时':'')+m+'分'+ss+'秒';
+}
+
+function renderHistoryList(){
+  const box = document.getElementById('historyList');
+  if(!box) return;
+  histGetAll().then(arr=>{
+    const cnt = document.getElementById('histCount');
+    if(cnt) cnt.textContent = arr.length;
+    if(!arr.length){
+      box.innerHTML = '<div class="hist-empty">暂无历史记录<br><span style="font-size:10px">目标超时时自动保存轨迹数据</span></div>';
+      return;
+    }
+    arr.sort((a,b)=>(b.lastSeen||0)-(a.lastSeen||0));
+    let html = '';
+    arr.forEach(rec=>{
+      const pts = rec.trackPoints ? rec.trackPoints.length : 0;
+      const rssiN = rec.rssiHist ? rec.rssiHist.length : 0;
+      const dur = (rec.firstSeen && rec.lastSeen) ? _fmtDur(rec.lastSeen - rec.firstSeen) : '--';
+      const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || '未知');
+      html += `<div class="hist-item">
+        <div class="hist-row1">
+          <span class="brand-tag brand-dji">${brandText}</span>
+          <span class="hist-sn">${rec.sn || rec.id}</span>
+          ${rec.channel?`<span style="font-size:10px;color:#409eff">CH${rec.channel}</span>`:''}
+        </div>
+        <div class="hist-meta">
+          <span>首次: <b>${_fmtHistTime(rec.firstSeen)}</b></span>
+          <span>最后: <b>${_fmtHistTime(rec.lastSeen)}</b></span>
+          <span>时长: <b>${dur}</b></span>
+          <span>轨迹点: <b>${pts}</b></span>
+          <span>最后RSSI: <b>${rec.lastRssi!==null&&rec.lastRssi!==undefined?rec.lastRssi+'dBm':'--'}</b></span>
+        </div>
+        <div class="hist-actions">
+          ${pts>=2?`<button class="hist-btn primary" onclick="openTrackReplay('${rec.id}')">🗺️ 查看轨迹</button>`:''}
+          ${pts>=2?`<button class="hist-btn" onclick="exportHistoryKML('${rec.id}')">📥 导出KML</button>`:''}
+          ${pts<2 && rssiN>=2?`<button class="hist-btn primary" onclick="openRssiReplay('${rec.id}')">📶 查看信号</button>`:''}
+          ${pts<2 && rssiN<2?`<span style="font-size:10px;color:var(--text-secondary)">仅基本信息</span>`:''}
+          <button class="hist-btn danger" onclick="deleteHistory('${rec.id}')">🗑 删除</button>
+        </div>
+      </div>`;
+    });
+    box.innerHTML = html;
+  }).catch(e=>{
+    box.innerHTML = '<div class="hist-empty">读取失败: '+e.message+'</div>';
+  });
+}
+
+function deleteHistory(id){
+  if(!confirm('确定删除该条历史记录？')) return;
+  histDelete(id).then(()=>{ addLog('info','[历史] 已删除: '+id); renderHistoryList(); })
+    .catch(e=>alert('删除失败: '+e.message));
+}
+function clearAllHistory(){
+  if(!confirm('确定清空所有历史轨迹记录？此操作不可恢复！')) return;
+  histClear().then(()=>{ addLog('info','[历史] 已清空所有记录'); renderHistoryList(); })
+    .catch(e=>alert('清空失败: '+e.message));
+}
+
+function openHistTrackForSn(sn){
+  if(!sn) return;
+  findLatestTrackBySn(sn).then(rec=>{
+    if(rec){
+      closeDetail();
+      if(rec.trackPoints && rec.trackPoints.length>=2) openTrackReplay(rec.id);
+      else if(rec.rssiHist && rec.rssiHist.length>=2) openRssiReplay(rec.id);
+      else alert('该记录无轨迹/信号数据');
+    } else {
+      alert('未找到该 SN 的历史记录');
+    }
+  });
+}
+
+// v2.3.1: 无GPS记录的RSSI信号回放（复用轨迹回放弹窗，但只画RSSI曲线）
+function openRssiReplay(id){
+  histGetAll().then(arr=>{
+    const rec = arr.find(x=>x.id===id);
+    if(!rec || !rec.rssiHist || rec.rssiHist.length<2){ alert('无RSSI数据'); return; }
+    document.getElementById('trackReplayTitle').textContent = `📶 信号记录 - ${rec.sn}`;
+    const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || '');
+    document.getElementById('trackReplaySubtitle').textContent = `${brandText} · ${_fmtHistTime(rec.firstSeen)} ~ ${_fmtHistTime(rec.lastSeen)} · ${rec.rssiHist.length}个采样`;
+    document.getElementById('trackReplayOverlay').classList.add('show');
+    // 隐藏地图，显示RSSI canvas
+    setTimeout(()=>{
+      const mapEl = document.getElementById('trackReplayMap');
+      if(mapEl) mapEl.style.display='none';
+      let cv = document.getElementById('rssiReplayCanvas');
+      if(!cv){
+        cv = document.createElement('canvas');
+        cv.id = 'rssiReplayCanvas';
+        cv.style.width='100%'; cv.style.height='260px'; cv.style.display='block';
+        cv.style.background='#0a1929'; cv.style.borderRadius='8px';
+        cv.style.marginBottom='8px';
+        mapEl.parentNode.insertBefore(cv, mapEl);
+      }
+      cv.style.display='block';
+      // v2.3.2: 用 rAF 等容器布局完成再画，避免 clientWidth=0 画成 300×260 小块
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        drawRssiReplay(cv, rec.rssiHist, rec.avgRssi, rec.lastRssi);
+        // 播放扫描游标动画：一根白色竖线从左走到右
+        _rssiPlayIdx = -1;  // v2.3.3: -1 确保第一帧触发重绘
+        _rssiPlayHist = rec.rssiHist;
+        _rssiPaused = false;
+        _rssiPlayPauseAccum = 0;
+        const tMin=rec.rssiHist[0].t, tMax=rec.rssiHist[rec.rssiHist.length-1].t;
+        _rssiPlayDur = Math.max(tMax-tMin, 4000); // 至少4秒
+        _rssiPlayStart = performance.now();
+        const playBtn = document.getElementById('trkPlayBtn');
+        if(playBtn){ playBtn.textContent = '⏸ 暂停'; playBtn.onclick = toggleRssiPlay; }
+        const playRow = document.getElementById('trackPlayRow');
+        if(playRow) playRow.style.display='flex';
+        const label = document.getElementById('trkTimeLabel');
+        if(label) label.textContent = '00:00 · 1/'+rec.rssiHist.length;
+        cancelAnimationFrame(_rssiPlayRaf);
+        _rssiPlayRaf = requestAnimationFrame(_rssiPlayTick);
+      }));
+      // 信息区
+      const info = document.getElementById('trackReplayInfo');
+      if(info){
+        const minR = Math.min(...rec.rssiHist.map(p=>p.r));
+        const maxR = Math.max(...rec.rssiHist.map(p=>p.r));
+        info.innerHTML = `
+          <div class="ti"><div class="l">平均RSSI</div><div class="v">${rec.avgRssi?rec.avgRssi.toFixed(1)+'dBm':'--'}</div></div>
+          <div class="ti"><div class="l">最强/最弱</div><div class="v">${maxR}/${minR}dBm</div></div>
+          <div class="ti"><div class="l">最后RSSI</div><div class="v">${rec.lastRssi?rec.lastRssi+'dBm':'--'}</div></div>`;
+      }
+    }, 100);
+  });
+}
+
+// v2.3.2: RSSI 回放的扫描动画状态
+let _rssiPlayRaf=0, _rssiPlayIdx=0, _rssiPlayHist=null, _rssiPlayStart=0, _rssiPlayDur=0, _rssiPaused=false;
+function _rssiPlayTick(now){
+  if(!_rssiPlayHist){ return; }
+  if(_rssiPaused){ _rssiPlayRaf=requestAnimationFrame(_rssiPlayTick); return; }
+  // v2.3.3: 每次重新计算经过时间，_rssiPlayStart 在播放/继续时校准
+  const elapsed = (now - _rssiPlayStart) + (_rssiPlayPauseAccum||0);
+  const ratio = Math.min(elapsed/_rssiPlayDur, 1);
+  const idx = Math.round(ratio*(_rssiPlayHist.length-1));
+  if(idx !== _rssiPlayIdx){
+    _rssiPlayIdx = idx;
+    const cv = document.getElementById('rssiReplayCanvas');
+    if(cv){
+      const avg = _rssiPlayHist.reduce((s,p)=>s+p.r,0)/_rssiPlayHist.length;
+      drawRssiReplay(cv, _rssiPlayHist, avg, _rssiPlayHist[_rssiPlayHist.length-1].r);
+      // 画扫描游标
+      const W=cv.clientWidth||320, H=260;
+      const pad={l:36,r:12,t:16,b:24}, w=W-pad.l-pad.r;
+      const tMin=_rssiPlayHist[0].t, tMax=_rssiPlayHist[_rssiPlayHist.length-1].t;
+      const xOf=t=>pad.l+(tMax===tMin?w/2:w*(t-tMin)/(tMax-tMin));
+      const p=_rssiPlayHist[idx];
+      const x=xOf(p.t);
+      // y 值：复制 drawRssiReplay 内的算法
+      let dMin=Infinity,dMax=-Infinity;
+      _rssiPlayHist.forEach(pp=>{ if(pp.r<dMin)dMin=pp.r; if(pp.r>dMax)dMax=pp.r; });
+      let yMin=Math.min(-110,Math.floor((dMin-5)/20)*20), yMax=Math.max(-15,Math.ceil((dMax+5)/20)*20);
+      if(yMax-yMin<40) yMax=yMin+40;
+      const yOf=v=>pad.t+(H-pad.t-pad.b)*(1-(v-yMin)/(yMax-yMin));
+      const ctx=cv.getContext('2d');
+      ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(x,pad.t); ctx.lineTo(x,H-pad.b); ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x, yOf(p.r), 4, 0, Math.PI*2); ctx.fill();
+      // 数值气泡
+      ctx.fillStyle='rgba(0,0,0,0.75)';
+      const tx = Math.min(Math.max(x-28, pad.l), W-pad.r-56);
+      ctx.fillRect(tx, pad.t-2, 56, 16);
+      ctx.fillStyle='#fff'; ctx.font='bold 10px monospace'; ctx.textAlign='left';
+      ctx.fillText(p.r+' dBm', tx+4, pad.t+10);
+      ctx.textAlign='start';
+    }
+    // 更新时间标签
+    const label=document.getElementById('trkTimeLabel');
+    if(label){
+      const t = _rssiPlayHist[idx].t;
+      const d=new Date(t);
+      label.textContent = d.toLocaleTimeString()+' · '+(idx+1)+'/'+_rssiPlayHist.length;
+    }
+  }
+  if(ratio < 1){
+    _rssiPlayRaf = requestAnimationFrame(_rssiPlayTick);
+  } else {
+    const btn=document.getElementById('trkPlayBtn');
+    if(btn) btn.textContent='🔄 重播';
+    _rssiPlayPauseAccum = 0;
+  }
+}
+let _rssiPlayPauseAccum = 0, _rssiPauseAt = 0;
+function toggleRssiPlay(){
+  const btn=document.getElementById('trkPlayBtn');
+  if(btn && btn.textContent.indexOf('重播')>=0){
+    _rssiPlayStart=performance.now(); _rssiPaused=false;
+    _rssiPlayPauseAccum=0; _rssiPlayIdx=0;
+    btn.textContent='⏸ 暂停';
+    cancelAnimationFrame(_rssiPlayRaf);
+    _rssiPlayRaf=requestAnimationFrame(_rssiPlayTick);
+    return;
+  }
+  _rssiPaused = !_rssiPaused;
+  if(btn) btn.textContent = _rssiPaused?'▶ 继续':'⏸ 暂停';
+  if(_rssiPaused){
+    _rssiPauseAt = performance.now();
+  } else {
+    // 继续时：把暂停期间的时间从起点扣除，保证进度不跳
+    _rssiPlayStart += (performance.now() - _rssiPauseAt);
+  }
+}
+
+function drawRssiReplay(cv, hist, avgRssi, lastRssi){
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 320, H = 240;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const pad={l:36,r:12,t:16,b:24}, w=W-pad.l-pad.r, h=H-pad.t-pad.b;
+  let dMin=Infinity,dMax=-Infinity;
+  hist.forEach(p=>{ if(p.r<dMin)dMin=p.r; if(p.r>dMax)dMax=p.r; });
+  let yMin=Math.min(-110,Math.floor((dMin-5)/20)*20), yMax=Math.max(-15,Math.ceil((dMax+5)/20)*20);
+  if(yMax-yMin<40) yMax=yMin+40;
+  const yOf=v=>pad.t+h*(1-(v-yMin)/(yMax-yMin));
+  // 网格
+  ctx.strokeStyle='#1d3a5c'; ctx.lineWidth=1; ctx.fillStyle='#7fb3d5'; ctx.font='10px sans-serif';
+  const gMin=Math.ceil(yMin/20)*20, gMax=Math.floor(yMax/20)*20;
+  for(let gv=gMin; gv<=gMax; gv+=20){
+    const y=yOf(gv);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillText(gv, 4, y+3);
+  }
+  // 区域填充
+  const tMin=hist[0].t, tMax=hist[hist.length-1].t;
+  const xOf=t=>pad.l+(tMax===tMin?w/2:w*(t-tMin)/(tMax-tMin));
+  ctx.beginPath();
+  ctx.moveTo(xOf(hist[0].t), yOf(hist[0].r));
+  hist.forEach(p=>ctx.lineTo(xOf(p.t), yOf(p.r)));
+  ctx.lineTo(xOf(hist[hist.length-1].t), pad.t+h);
+  ctx.lineTo(xOf(hist[0].t), pad.t+h);
+  ctx.closePath();
+  ctx.fillStyle='rgba(64,158,255,0.15)'; ctx.fill();
+  // 平均线
+  if(avgRssi){
+    ctx.strokeStyle='rgba(230,162,60,0.5)'; ctx.setLineDash([4,3]); ctx.lineWidth=1;
+    const ay=yOf(avgRssi);
+    ctx.beginPath(); ctx.moveTo(pad.l,ay); ctx.lineTo(W-pad.r,ay); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#e6a23c'; ctx.fillText('avg '+avgRssi.toFixed(1), W-pad.r-55, ay-3);
+  }
+  // 折线
+  ctx.beginPath();
+  ctx.moveTo(xOf(hist[0].t), yOf(hist[0].r));
+  hist.forEach(p=>ctx.lineTo(xOf(p.t), yOf(p.r)));
+  ctx.strokeStyle='#409eff'; ctx.lineWidth=2; ctx.stroke();
+  // 末端点
+  const last=hist[hist.length-1];
+  ctx.fillStyle='#67c23a';
+  ctx.beginPath(); ctx.arc(xOf(last.t), yOf(last.r), 4, 0, Math.PI*2); ctx.fill();
+  // 时间标签
+  ctx.fillStyle='#7fb3d5'; ctx.font='10px monospace';
+  const fmtT=t=>{const d=new Date(t);return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')+':'+d.getSeconds().toString().padStart(2,'0');};
+  ctx.fillText(fmtT(tMin), pad.l, H-6);
+  ctx.textAlign='right';
+  ctx.fillText(fmtT(tMax), W-pad.r, H-6);
+}
+
+// ---------------- 轨迹回放弹窗（独立 AMap 实例） ----------------
+let _trkMap = null, _trkLine = null, _trkMarker = null;
+let _trkRec = null, _trkPlaying = false, _trkTimer = null, _trkIdx = 0;
+let _trkStartMk = null, _trkEndMk = null;
+
+function openTrackReplay(id){
+  histGetAll().then(arr=>{
+    const rec = arr.find(x=>x.id===id);
+    if(!rec){ alert('记录不存在'); return; }
+    _trkRec = rec;
+    document.getElementById('trackReplayTitle').textContent = `🗺️ 历史轨迹 - ${rec.sn}`;
+    const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || '');
+    document.getElementById('trackReplaySubtitle').textContent = `${brandText} · ${_fmtHistTime(rec.firstSeen)} ~ ${_fmtHistTime(rec.lastSeen)}`;
+    // v2.3.1: 确保地图和播放栏可见（可能被 RSSI 回放隐藏过）
+    const mapEl = document.getElementById('trackReplayMap');
+    if(mapEl) mapEl.style.display='';
+    const cv = document.getElementById('rssiReplayCanvas');
+    if(cv) cv.style.display='none';
+    const playRow = document.getElementById('trackPlayRow');
+    if(playRow) playRow.style.display='';
+    const playBtn = document.getElementById('trkPlayBtn');
+    if(playBtn){ playBtn.textContent='▶ 播放'; playBtn.onclick=toggleTrackPlay; }
+    document.getElementById('trackReplayOverlay').classList.add('show');
+    // 等弹窗动画结束再初始化地图
+    setTimeout(()=>initTrackReplayMap(rec), 350);
+  });
+}
+
+function initTrackReplayMap(rec){
+  const container = document.getElementById('trackReplayMap');
+  if(!rec.trackPoints || rec.trackPoints.length<2){
+    container.innerHTML = '<div class="traj-map-loading">无有效轨迹点</div>';
+    return;
+  }
+  // 清理旧实例
+  destroyTrackReplayMap();
+  container.innerHTML = '';
+  const pts = rec.trackPoints.map(p=>[p.lng, p.lat]); // GCJ-02
+  let cLng=0, cLat=0;
+  pts.forEach(p=>{cLng+=p[0];cLat+=p[1];});
+  cLng/=pts.length; cLat/=pts.length;
+  try{
+    _trkMap = new AMap.Map(container, {
+      zoom: 15, center: [cLng,cLat], viewMode:'2D',
+      dragEnable:true, zoomEnable:true
+    });
+  }catch(e){
+    container.innerHTML = '<div class="traj-map-loading">地图创建失败: '+e.message+'</div>';
+    return;
+  }
+  // 起终点
+  _trkStartMk = new AMap.Marker({
+    position: pts[0],
+    content:'<div style="width:12px;height:12px;background:#67c23a;border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(103,194,58,0.7)"></div>',
+    offset:new AMap.Pixel(-6,-6)
+  });
+  _trkEndMk = new AMap.Marker({
+    position: pts[pts.length-1],
+    content:'<div style="width:12px;height:12px;background:#f56c6c;border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px rgba(245,108,108,0.7)"></div>',
+    offset:new AMap.Pixel(-6,-6)
+  });
+  _trkMap.add([_trkStartMk, _trkEndMk]);
+  // 完整轨迹线（暗色）
+  _trkLine = new AMap.Polyline({
+    path: pts, strokeColor:'#409eff', strokeWeight:4, strokeOpacity:0.85,
+    lineJoin:'round', showDir:true
+  });
+  _trkMap.add(_trkLine);
+  // 移动点
+  _trkMarker = new AMap.Marker({
+    position: pts[0],
+    content:'<div style="width:16px;height:16px;background:#ff9800;border:3px solid #fff;border-radius:50%;box-shadow:0 0 12px rgba(255,152,0,0.9)"></div>',
+    offset:new AMap.Pixel(-8,-8), zIndex:120
+  });
+  _trkMap.add(_trkMarker);
+  _trkMap.setFitView(null, false, [40,40,40,40]);
+  _trkIdx = 0; _trkPlaying = false;
+  updateTrkProgressUI();
+  // 绑定进度条拖动
+  const slider = document.getElementById('trkProgress');
+  slider.value = 0;
+  slider.oninput = ()=>{
+    const v = parseFloat(slider.value);
+    _trkIdx = Math.round(v/100 * (pts.length-1));
+    updateTrkProgressUI();
+  };
+}
+
+function updateTrkProgressUI(){
+  if(!_trkRec || !_trkRec.trackPoints) return;
+  const pts = _trkRec.trackPoints;
+  const p = pts[_trkIdx] || pts[0];
+  document.getElementById('trkTime').textContent = p ? new Date(p.t).toLocaleTimeString() : '--';
+  document.getElementById('trkAlt').textContent = (p && p.alt!==null && p.alt!==undefined) ? Number(p.alt).toFixed(1)+' m' : '--';
+  document.getElementById('trkSpeed').textContent = (p && p.speed!==null && p.speed!==undefined) ? Number(p.speed).toFixed(1)+' m/s' : '--';
+  if(_trkMarker) _trkMarker.setPosition([p.lng, p.lat]);
+  // 时间标签
+  const t0 = pts[0].t, t1 = pts[pts.length-1].t;
+  const fmt = ms => { const s=Math.floor(ms/1000); const m=Math.floor(s/60); return String(m).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); };
+  document.getElementById('trkTimeLabel').textContent = fmt(p.t-t0)+' / '+fmt(t1-t0);
+  const slider = document.getElementById('trkProgress');
+  if(slider && !_trkPlaying) slider.value = (_trkIdx/(pts.length-1)*100);
+}
+
+function toggleTrackPlay(){
+  if(!_trkRec) return;
+  const btn = document.getElementById('trkPlayBtn');
+  if(_trkPlaying){
+    _trkPlaying = false;
+    if(_trkTimer){ clearInterval(_trkTimer); _trkTimer=null; }
+    btn.textContent = '▶ 播放';
+    return;
+  }
+  _trkPlaying = true;
+  btn.textContent = '⏸ 暂停';
+  if(_trkIdx >= _trkRec.trackPoints.length-1) _trkIdx = 0;
+  const pts = _trkRec.trackPoints;
+  // 按真实时间间隔
+  const tick = ()=>{
+    if(!_trkPlaying) return;
+    _trkIdx++;
+    if(_trkIdx >= pts.length){
+      _trkIdx = pts.length-1;
+      _trkPlaying = false;
+      if(_trkTimer){ clearInterval(_trkTimer); _trkTimer=null; }
+      btn.textContent = '🔄 重播';
+      updateTrkProgressUI();
+      return;
+    }
+    updateTrkProgressUI();
+    const slider = document.getElementById('trkProgress');
+    if(slider) slider.value = (_trkIdx/(pts.length-1)*100);
+    // 计算到下一点的真实间隔（最小80ms，最大600ms）
+    let delay = 300;
+    if(_trkIdx < pts.length-1){
+      const dt = pts[_trkIdx+1].t - pts[_trkIdx].t;
+      delay = Math.max(80, Math.min(600, dt));
+    }
+    _trkTimer = setTimeout(tick, delay);
+  };
+  tick();
+}
+
+function destroyTrackReplayMap(){
+  if(_trkTimer){ clearTimeout(_trkTimer); _trkTimer=null; }
+  _trkPlaying = false;
+  if(_trkMap){
+    try{ _trkMap.destroy(); }catch(e){}
+    _trkMap = null;
+  }
+  _trkLine = null; _trkMarker = null; _trkStartMk = null; _trkEndMk = null;
+}
+
+function closeTrackReplay(){
+  document.getElementById('trackReplayOverlay').classList.remove('show');
+  destroyTrackReplayMap();
+  // v2.3.1/v2.3.2: 恢复 RSSI 回放时隐藏/改动的元素
+  const mapEl = document.getElementById('trackReplayMap');
+  if(mapEl) mapEl.style.display='';
+  const cv = document.getElementById('rssiReplayCanvas');
+  if(cv) cv.style.display='none';
+  const playRow = document.getElementById('trackPlayRow');
+  if(playRow) playRow.style.display='';
+  const playBtn = document.getElementById('trkPlayBtn');
+  if(playBtn){ playBtn.textContent='▶ 播放'; playBtn.onclick=toggleTrackPlay; }
+  _rssiPlayHist=null; _rssiPaused=false;
+  cancelAnimationFrame(_rssiPlayRaf); _rssiPlayRaf=0;
+  _trkRec = null;
+}
+
+// ---------------- KML 导出 ----------------
+function _kmlEscape(s){
+  if(s === undefined || s === null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function _kmlCoordsFromGcj(pts){
+  // KML 标准是 WGS-84，但此处按需求直接使用 GCJ-02 坐标（在中国区高德/Google Earth 显示更准）
+  return pts.map(p=>p[0].toFixed(6)+','+p[1].toFixed(6)+',0').join(' ');
+}
+function buildKML(placemarks){
+  // placemarks: [{name, desc, pts(GCJ[[lng,lat]]), start, end}]
+  let kml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n';
+  kml += '<Document>\n';
+  kml += '  <name>RID 侦测轨迹导出</name>\n';
+  kml += '  <description>由 RID 侦测监控 v2.3.3 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
+  kml += '  <Style id="ridLine"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>\n';
+  kml += '  <Style id="ridStart"><IconStyle><color>ff00ff00</color><scale>1</scale></IconStyle></Style>\n';
+  kml += '  <Style id="ridEnd"><IconStyle><color>ff0000ff</color><scale>1</scale></IconStyle></Style>\n';
+  placemarks.forEach(pm=>{
+    kml += '  <Placemark>\n';
+    kml += '    <name>'+_kmlEscape(pm.name)+'</name>\n';
+    if(pm.desc) kml += '    <description>'+_kmlEscape(pm.desc)+'</description>\n';
+    kml += '    <styleUrl>#ridLine</styleUrl>\n';
+    kml += '    <LineString><coordinates>'+_kmlCoordsFromGcj(pm.pts)+'</coordinates></LineString>\n';
+    kml += '  </Placemark>\n';
+    if(pm.pts.length>=1){
+      kml += '  <Placemark><name>'+_kmlEscape(pm.name)+' 起点</name><styleUrl>#ridStart</styleUrl><Point><coordinates>'+pm.pts[0][0].toFixed(6)+','+pm.pts[0][1].toFixed(6)+',0</coordinates></Point></Placemark>\n';
+      kml += '  <Placemark><name>'+_kmlEscape(pm.name)+' 终点</name><styleUrl>#ridEnd</styleUrl><Point><coordinates>'+pm.pts[pm.pts.length-1][0].toFixed(6)+','+pm.pts[pm.pts.length-1][1].toFixed(6)+',0</coordinates></Point></Placemark>\n';
+    }
+  });
+  kml += '</Document>\n</kml>\n';
+  return kml;
+}
+function _downloadFile(content, filename, mime){
+  const blob = new Blob([content], {type:mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function _kmlTs(){
+  const n = new Date();
+  const p = x=>String(x).padStart(2,'0');
+  return n.getFullYear()+p(n.getMonth()+1)+p(n.getDate())+'_'+p(n.getHours())+p(n.getMinutes())+p(n.getSeconds());
+}
+
+function exportKML(){
+  const ids = Object.keys(droneData);
+  const placemarks = [];
+  ids.forEach(id=>{
+    const d = droneData[id];
+    if(!d.history || d.history.length<2) return;
+    const pts = d.history.map(p=>[p.lng, p.lat]);
+    const bi = lookupSN(d.sn, d._lastMAC);
+    const firstSeen = d.history[0].t, lastSeen = d.history[d.history.length-1].t;
+    placemarks.push({
+      name: d.sn || id,
+      desc: `品牌: ${bi.brand||''} ${bi.model||''}\nSN: ${d.sn||''}\n发现: ${new Date(firstSeen).toLocaleString()}\n最后: ${new Date(lastSeen).toLocaleString()}\n点数: ${d.history.length}\nRSSI: ${d.rssi||'--'}dBm`,
+      pts: pts
+    });
+  });
+  if(!placemarks.length){ alert('暂无可导出的轨迹（需要至少2个轨迹点）'); return; }
+  const kml = buildKML(placemarks);
+  _downloadFile(kml, `RID轨迹_${_kmlTs()}.kml`, 'application/vnd.google-earth.kml+xml;charset=utf-8');
+  addLog('success', `[导出] KML 已导出 ${placemarks.length} 条轨迹`);
+}
+
+function exportHistoryKML(id){
+  histGetAll().then(arr=>{
+    const rec = arr.find(x=>x.id===id);
+    if(!rec || !rec.trackPoints || rec.trackPoints.length<2){ alert('该记录无有效轨迹'); return; }
+    const pts = rec.trackPoints.map(p=>[p.lng, p.lat]);
+    const kml = buildKML([{
+      name: rec.sn || id,
+      desc: `品牌: ${rec.brand||''} ${rec.model||''}\n首次: ${_fmtHistTime(rec.firstSeen)}\n最后: ${_fmtHistTime(rec.lastSeen)}\n点数: ${rec.trackPoints.length}\n最后RSSI: ${rec.lastRssi||'--'}dBm`,
+      pts: pts
+    }]);
+    _downloadFile(kml, `RID轨迹_${(rec.sn||id).replace(/[^a-zA-Z0-9_-]/g,'_')}_${_kmlTs()}.kml`, 'application/vnd.google-earth.kml+xml;charset=utf-8');
+    addLog('success', '[导出] KML 已导出: '+(rec.sn||id));
+  });
+}
+function exportAllHistoryKML(){
+  histGetAll().then(arr=>{
+    const valid = arr.filter(r=>r.trackPoints && r.trackPoints.length>=2);
+    if(!valid.length){ alert('暂无历史轨迹可导出'); return; }
+    const placemarks = valid.map(rec=>({
+      name: rec.sn || rec.id,
+      desc: `品牌: ${rec.brand||''} ${rec.model||''}\n首次: ${_fmtHistTime(rec.firstSeen)}\n最后: ${_fmtHistTime(rec.lastSeen)}\n点数: ${rec.trackPoints.length}`,
+      pts: rec.trackPoints.map(p=>[p.lng,p.lat])
+    }));
+    const kml = buildKML(placemarks);
+    _downloadFile(kml, `RID历史轨迹_${_kmlTs()}.kml`, 'application/vnd.google-earth.kml+xml;charset=utf-8');
+    addLog('success', `[导出] KML 已导出 ${placemarks.length} 条历史轨迹`);
+  });
+}
+
+// ---------------- 初始化 v2.3.0 功能 ----------------
+function initV230(){
+  try{ initRadar(); }catch(e){ console.warn('radar init', e); }
+  try{ startRadarTimer(); }catch(e){}
+  try{ startChannelTimers(); }catch(e){}
+  // 预热 IndexedDB
+  openIdb().then(()=>{
+    addLog('success','[历史] IndexedDB 已就绪');
+    // 更新历史计数
+    histGetAll().then(arr=>{
+      const cnt = document.getElementById('histCount');
+      if(cnt) cnt.textContent = arr.length;
+    });
+  }).catch(e=>{
+    addLog('warn','[历史] IndexedDB 不可用，使用内存缓存: '+(e&&e.message));
+  });
+  // 窗口大小变化时重绘雷达
+  window.addEventListener('resize', ()=>{
+    try{ drawRadar(); }catch(e){}
+  });
+}
+
+
+window.addEventListener('load',()=>{
+  initMap();startStaleCleanTimer();initV230();
+  setTimeout(updateGpsStat,500);
+  try{const v=localStorage.getItem('rid_fw_ver');if(v)document.getElementById('firmwareVer').textContent=v;}catch(e){}
+  try{
+    _loadAlertHistory();
+    _renderAlertHistory();
+    // 历史已有记录时不把旧记录当未读，只计本次会话新增
+    _unreadAlerts = 0;
+    _updateAlertBadge();
+  }catch(e){}
+});
+</script>
+</body>
+</html>
