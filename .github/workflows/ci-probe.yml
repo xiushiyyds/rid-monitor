@@ -1,0 +1,14 @@
+name: CI Probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: runner alive check
+        run: |
+          echo "runner picked up job at $(date -u)"
+          uname -a
+          sleep 20
+          echo "still alive after 20s"
+
