@@ -381,6 +381,10 @@ body {
     <div class="card">
       <h3>📶 蓝牙连接</h3>
       <button id="bleConnectBtn" class="btn-connect" onclick="toggleConnect()" style="background:linear-gradient(135deg,#0d8b5f,#10b981);color:#fff;border:none">📡 蓝牙连接 S3 侦测站</button>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(144,147,151,0.25)">
+        <button id="evlogSyncBtn" onclick="evlogSync()" disabled style="width:100%;padding:11px;border-radius:10px;border:1px solid rgba(16,185,129,0.4);background:rgba(16,185,129,0.12);color:#10b981;font-size:14px;font-weight:600;cursor:not-allowed;opacity:0.5;transition:.2s">🔄 同步板载执勤记录</button>
+        <div id="evlogSyncTime" style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">最近同步：暂无记录</div>
+      </div>
       <div style="font-size:12px;color:var(--text-dim);margin-top:8px;line-height:1.5">
         手机/电脑通过蓝牙直连 RID Station S3（T-Display-S3），无需数据线、无需热点，侦测数据实时透传。<br>
         <b>安卓 Chrome/Edge、电脑 Chrome/Edge</b> 均支持（需 HTTPS 或本地文件环境；iPhone Safari 不支持蓝牙网页，请用安卓）。
@@ -1864,6 +1868,9 @@ function disconnect(){if(bleDevice&&bleDevice.gatt.connected)bleDevice.gatt.disc
 function onDisconnected(){
   isConnected=false;updateConnectionUI(false);
   addLog('warn','[BLE] 连接已断开');stopUptime();
+  // v3.1.9: 断开时禁用同步按钮
+  const sb=document.getElementById('evlogSyncBtn');
+  if(sb){ sb.disabled=true; sb.style.cursor='not-allowed'; sb.style.opacity='0.5'; }
   // 重置BLE缓冲和状态
   _bleBuffer='';
   txChar=null; rxChar=null;
@@ -1911,10 +1918,22 @@ function sendCmd(cmd){
     addLog('error',`[BLE] 发送失败: ${err.message}`);
   });
 }
-/* ============ v3.1.8: 板载证据日志（evlog）导出 ============ */
+/* ============ v3.1.8/v3.1.9: 板载证据日志（evlog）导出+同步 ============ */
+const EVLOG_SYNC_KEY='rid_evlog_last_sync_unix';   // 上次同步 Unix 秒
 let evlogRecords=[];          // 本次 dump 收到的记录
 let evlogDumping=false;
 let evlogExpectCount=0, evlogGotCount=0;
+let evlogMode='csv';          // 'csv'=下载文件 | 'sync'=同步进预警/历史
+
+/* ---- 同步时间锚点（localStorage）---- */
+function evlogGetLastSync(){ try{ return parseInt(localStorage.getItem(EVLOG_SYNC_KEY)||'0',10)||0; }catch(e){ return 0; } }
+function evlogSetLastSync(unixSec){ try{ localStorage.setItem(EVLOG_SYNC_KEY, String(unixSec)); }catch(e){} }
+function evlogRenderSyncTime(){
+  const el=document.getElementById('evlogSyncTime');
+  if(!el) return;
+  const t=evlogGetLastSync();
+  el.textContent = t ? ('最近同步：'+_evlogFmtTime(t)) : '最近同步：暂无记录（首次为全量同步）';
+}
 
 function _evlogSetProgress(pct, txt){
   const box=document.getElementById('evlogProgress');
@@ -1941,16 +1960,37 @@ function evlogDump(){
   if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
   if(evlogDumping){ addLog('warn','[板载记录] 正在导出中，请稍候…'); return; }
   evlogRecords=[]; evlogGotCount=0; evlogExpectCount=0;
+  evlogMode='csv';
   evlogDumping=true;
   _evlogSetProgress(2,'请求板载记录…');
   sendCmd('EVLOG_DUMP');
   addLog('info','[板载记录] 开始下载离线执勤记录…');
+}
+/* v3.1.9: 运动手表式增量同步——进预警+历史记录 */
+function evlogSync(){
+  if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
+  if(evlogDumping){ addLog('warn','[板载记录] 正在同步中，请稍候…'); return; }
+  const last=evlogGetLastSync();
+  evlogRecords=[]; evlogGotCount=0; evlogExpectCount=0;
+  evlogMode='sync';
+  evlogDumping=true;
+  const sb=document.getElementById('evlogSyncBtn');
+  if(sb){ sb.disabled=true; sb.style.opacity='0.6'; sb.textContent='🔄 同步中…'; }
+  _evlogSetProgress(3, last?('请求增量记录（自 '+_evlogFmtTime(last)+'）…'):'首次同步，请求全量记录…');
+  // 有锚点发增量命令（EVLOG_DUMP <unix>），首次全量
+  sendCmd(last ? ('EVLOG_DUMP '+last) : 'EVLOG_DUMP');
+  addLog('info', last ? `[同步] 增量同步：拉取 ${_evlogFmtTime(last)} 之后的记录` : '[同步] 首次同步，拉取全部板载记录');
 }
 function evlogClear(){
   if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
   if(!confirm('确定清空板载全部执勤记录？此操作不可恢复，建议先下载备份。')) return;
   sendCmd('EVLOG_CLEAR');
   addLog('warn','[板载记录] 已请求清空…');
+}
+let evlogSince=0, evlogOldest=0;
+function _evlogResetBtn(){
+  const sb=document.getElementById('evlogSyncBtn');
+  if(sb){ sb.disabled=false; sb.style.cursor='pointer'; sb.style.opacity='1'; sb.textContent='🔄 同步板载执勤记录'; }
 }
 function handleEvlog(m){
   const st=document.getElementById('evlogStatus');
@@ -1964,9 +2004,12 @@ function handleEvlog(m){
       break;
     case 'evlog_begin':
       evlogExpectCount=m.count||0;
+      evlogSince=m.since||0; evlogOldest=m.oldest||0;
       evlogRecords=[]; evlogGotCount=0;
-      _evlogSetProgress(evlogExpectCount?3:100, evlogExpectCount?`开始接收，共 ${evlogExpectCount} 条…`:'板载无记录');
-      addLog('info',`[板载记录] 板端共 ${evlogExpectCount} 条，开始接收`);
+      _evlogSetProgress(evlogExpectCount?3:100, evlogExpectCount?`开始接收，共 ${evlogExpectCount} 条…`:(evlogMode==='sync'?'板载无新记录':'板载无记录'));
+      addLog('info', evlogMode==='sync'
+        ? `[同步] 板端本次 ${evlogExpectCount} 条新记录，开始接收`
+        : `[板载记录] 板端共 ${evlogExpectCount} 条，开始接收`);
       break;
     case 'evlog_rec':
       evlogRecords.push(m);
@@ -1978,9 +2021,18 @@ function handleEvlog(m){
       break;
     case 'evlog_end': {
       evlogDumping=false;
-      _evlogSetProgress(100, `✅ 接收完成：${m.sent} 条（跳过 ${m.skipped||0} 条损坏）`);
-      addLog('success',`[板载记录] 下载完成，共收到 ${m.sent} 条，准备导出文件…`);
-      if(evlogRecords.length>0){ evlogExportCSV(); }
+      const n=m.sent||0;
+      _evlogSetProgress(100, `✅ 接收完成：${n} 条（跳过 ${m.skipped||0} 条损坏）`);
+      if(evlogMode==='sync'){
+        // 覆盖缺口提示：增量同步但板内最旧记录晚于上次同步点（中间被环形覆盖）
+        if(evlogSince>0 && evlogOldest>0 && evlogOldest > evlogSince+300 && n>0){
+          addLog('warn',`[同步] ⚠️ 检测到记录缺口：${_evlogFmtTime(evlogSince)} 至 ${_evlogFmtTime(evlogOldest)} 之间的记录已被板内环形覆盖（建议执勤后及时同步，板载约存1.6万条）`);
+        }
+        evlogIngest(n);
+      } else {
+        addLog('success',`[板载记录] 下载完成，共收到 ${n} 条，准备导出文件…`);
+        if(evlogRecords.length>0){ evlogExportCSV(); }
+      }
       setTimeout(()=>{ const b=document.getElementById('evlogProgress'); if(b) b.style.display='none'; }, 6000);
       break;
     }
@@ -1989,15 +2041,102 @@ function handleEvlog(m){
       if(st && m.ok) st.innerHTML='板载记录已清空。';
       break;
     case 'evlog_busy':
-      evlogDumping=false;
+      evlogDumping=false; _evlogResetBtn();
       addLog('warn','[板载记录] 设备忙，上一次导出还在进行，请稍候重试');
       alert('设备正在导出中，请稍候再试');
       break;
     case 'evlog_error':
-      evlogDumping=false;
+      evlogDumping=false; _evlogResetBtn();
       addLog('error','[板载记录] 设备错误：'+(m.err||'未知'));
       break;
   }
+}
+
+/* v3.1.9: 把同步到的板载记录聚合进历史轨迹(IndexedDB)+预警 */
+function evlogIngest(reportedSent){
+  const recs=evlogRecords.filter(r=>r && r.evt==='evlog_rec');
+  _evlogResetBtn();
+  if(!recs.length){
+    addLog('info','[同步] 板载无新记录，执勤记录已是最新');
+    // 即便 0 条也把锚点推进到当前（避免下次重复请求空区间）
+    evlogSetLastSync(Math.floor(Date.now()/1000));
+    evlogRenderSyncTime();
+    return;
+  }
+  recs.sort((a,b)=>(a.ts||0)-(b.ts||0));
+
+  // 按 SN（无 SN 用 MAC）分组
+  const groups=new Map();
+  recs.forEach(r=>{
+    const key=(r.sn && r.sn.trim()) ? r.sn.trim() : ('MAC:'+(r.mac||'?'));
+    if(!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  });
+
+  let alertCount=0, trackCount=0, pointCount=0;
+  let maxTs=0;
+  const putJobs=[];
+
+  groups.forEach((pts, sn)=>{
+    const isMac=sn.startsWith('MAC:');
+    const realSn=isMac?'':sn;
+    const first=pts[0], last=pts[pts.length-1];
+    if((last.ts||0)>maxTs) maxTs=last.ts||0;
+
+    // 轨迹点：有无人机坐标的记录
+    const trackPoints=pts.filter(p=>p.dlat&&p.dlon).map(p=>({
+      lat:p.dlat, lng:p.dlon, t:(p.ts||0)*1000,
+      alt:(p.alt!=null?p.alt:null), speed:(p.spd!=null?p.spd:null)
+    }));
+    const rssiHist=pts.filter(p=>p.rssi!=null).map(p=>({t:(p.ts||0)*1000, r:p.rssi}));
+    let maxAlt=0; trackPoints.forEach(p=>{ if(p.alt&&p.alt>maxAlt) maxAlt=p.alt; });
+    let avgRssi=null;
+    if(rssiHist.length) avgRssi=rssiHist.reduce((s,p)=>s+p.r,0)/rssiHist.length;
+
+    const bi = isMac ? {brand:'',model:''} : (typeof lookupSN==='function'?lookupSN(realSn, first.mac):{brand:'',model:''});
+    const rec={
+      id: 'SYNC_'+sn+'_'+(first.ts||0),
+      sn: realSn || first.mac || sn,
+      brand: bi.brand||'', model: bi.model||'',
+      firstSeen: (first.ts||0)*1000,
+      lastSeen: (last.ts||0)*1000,
+      rssiHist: rssiHist,
+      trackPoints: trackPoints,
+      maxAlt: maxAlt,
+      avgRssi: avgRssi,
+      lastRssi: (last.rssi!=null?last.rssi:null),
+      channel: (last.ch===0?null:last.ch),
+      _offlineSync: true
+    };
+    putJobs.push(histPut(rec).then(()=>{ trackCount++; pointCount+=trackPoints.length; }));
+
+    // 预警：每个同步到的目标生成一条"发现无人机"（用第一条记录的真实时间）
+    const already=_alertHistory.some(a=>a.type==='new' && a.sn===rec.sn && Math.abs(a.t-rec.firstSeen)<60000);
+    if(!already){
+      const loc=trackPoints[0];
+      _alertHistory.push({
+        t: rec.firstSeen,
+        type:'new',
+        sn: rec.sn,
+        rssi: (first.rssi!=null?first.rssi:null),
+        zone:'', level:'离线同步',
+        model: (bi.model||bi.brand||(isMac?'蓝牙/MAC目标':'未知')),
+        lat: loc?loc.lat:null, lon: loc?loc.lng:null, alt: loc?loc.alt:null
+      });
+      alertCount++;
+    }
+  });
+
+  Promise.all(putJobs).then(()=>{
+    try{ _saveAlertHistory(); _renderAlertHistory(); _updateAlertBadge(); }catch(e){}
+    try{ renderHistoryList(); const hc=document.getElementById('histCount'); if(hc) histGetAll().then(arr=>hc.textContent=arr.length); }catch(e){}
+    // 锚点推进到本批最新记录时间（用记录时间而非当前时间，断网/时区更稳）
+    if(maxTs>0){ evlogSetLastSync(maxTs); }
+    evlogRenderSyncTime();
+    addLog('success',`[同步] ✅ 完成：${groups.size} 个目标 / ${recs.length} 条记录，新增轨迹 ${trackCount} 段（${pointCount} 个坐标点）、预警 ${alertCount} 条。已并入历史记录与预警，可上地图回放`);
+  }).catch(e=>{
+    addLog('error','[同步] 入库失败：'+e.message);
+  });
 }
 function evlogExportCSV(){
   if(evlogRecords.length===0){ alert('没有可导出的板载记录'); return; }
@@ -3296,6 +3435,9 @@ function onPairResult(ok) {
     startUptime();
     addLog('info','[系统] 侦测已启动，正在扫描空域...');
     document.getElementById('targetListContainer').innerHTML='<div class="target-item" style="color:var(--text-secondary);justify-content:center">正在扫描空域...</div>';
+    // v3.1.9: 配对成功后启用板载同步按钮
+    const sb=document.getElementById('evlogSyncBtn');
+    if(sb && !evlogDumping){ sb.disabled=false; sb.style.cursor='pointer'; sb.style.opacity='1'; }
   } else {
     isPaired = false;
     addLog('error', '[配对] 配对失败，配对码错误');
@@ -4483,6 +4625,7 @@ window.addEventListener('load',()=>{
   initMap();startStaleCleanTimer();initV230();
   setTimeout(updateGpsStat,500);
   try{const v=localStorage.getItem('rid_fw_ver');if(v)document.getElementById('firmwareVer').textContent=v;}catch(e){}
+  try{ evlogRenderSyncTime(); }catch(e){}
   try{
     _loadAlertHistory();
     _renderAlertHistory();
