@@ -440,6 +440,25 @@ body {
       </div>
     </div>
 
+    <!-- v3.1.8: 板载证据日志导出（离线执勤记录） -->
+    <div class="card">
+      <h3>💾 板载执勤记录（离线证据）</h3>
+      <div class="export-row">
+        <button class="btn-export" onclick="evlogQuery()" style="background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.35);color:#10b981">🔍 查询板载记录</button>
+        <button class="btn-export" onclick="evlogDump()">📥 下载全部记录</button>
+        <button class="btn-export" onclick="evlogClear()" style="background:rgba(245,108,108,0.1);border-color:rgba(245,108,108,0.3);color:var(--red)">🗑️ 清空板载记录</button>
+      </div>
+      <div id="evlogStatus" style="font-size:12px;color:var(--text-secondary);margin-top:8px;line-height:1.6">
+        板子离线侦测时自动把目标记录写入板载 flash（约1.6万条，掉电不丢）。连上手机后点"下载全部记录"即可取回执勤证据。需固件 v3.1.8+。
+      </div>
+      <div id="evlogProgress" style="display:none;margin-top:8px">
+        <div style="font-size:12px;color:#10b981" id="evlogProgressText">准备中…</div>
+        <div style="height:6px;background:var(--bg-input);border-radius:3px;margin-top:6px;overflow:hidden">
+          <div id="evlogProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#0d8b5f,#10b981);transition:width .3s"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- v2.3.0: 信道占用柱状图 -->
     <div class="card">
       <div class="ch-header">
@@ -1892,6 +1911,121 @@ function sendCmd(cmd){
     addLog('error',`[BLE] 发送失败: ${err.message}`);
   });
 }
+/* ============ v3.1.8: 板载证据日志（evlog）导出 ============ */
+let evlogRecords=[];          // 本次 dump 收到的记录
+let evlogDumping=false;
+let evlogExpectCount=0, evlogGotCount=0;
+
+function _evlogSetProgress(pct, txt){
+  const box=document.getElementById('evlogProgress');
+  const bar=document.getElementById('evlogProgressBar');
+  const t=document.getElementById('evlogProgressText');
+  if(!box) return;
+  box.style.display='block';
+  if(bar) bar.style.width=pct+'%';
+  if(t && txt) t.textContent=txt;
+}
+function _evlogFmtTime(ts){
+  if(!ts || ts===0) return '未授时(无GPS)';
+  try{
+    const d=new Date(ts*1000);
+    const p=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }catch(e){ return String(ts); }
+}
+function evlogQuery(){
+  if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
+  sendCmd('EVLOG_STATUS');
+}
+function evlogDump(){
+  if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
+  if(evlogDumping){ addLog('warn','[板载记录] 正在导出中，请稍候…'); return; }
+  evlogRecords=[]; evlogGotCount=0; evlogExpectCount=0;
+  evlogDumping=true;
+  _evlogSetProgress(2,'请求板载记录…');
+  sendCmd('EVLOG_DUMP');
+  addLog('info','[板载记录] 开始下载离线执勤记录…');
+}
+function evlogClear(){
+  if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
+  if(!confirm('确定清空板载全部执勤记录？此操作不可恢复，建议先下载备份。')) return;
+  sendCmd('EVLOG_CLEAR');
+  addLog('warn','[板载记录] 已请求清空…');
+}
+function handleEvlog(m){
+  const st=document.getElementById('evlogStatus');
+  switch(m.evt){
+    case 'evlog_status':
+      if(st){
+        const span = m.total ? Math.round(m.count/m.total*100) : 0;
+        st.innerHTML = `板载记录 <b style="color:#10b981">${m.count}</b> 条 / 容量 ${m.total} 条（${span}%）<br>时间范围：${_evlogFmtTime(m.oldest)} → ${_evlogFmtTime(m.newest)}`;
+      }
+      addLog('info',`[板载记录] 共 ${m.count} 条，容量 ${m.total}`);
+      break;
+    case 'evlog_begin':
+      evlogExpectCount=m.count||0;
+      evlogRecords=[]; evlogGotCount=0;
+      _evlogSetProgress(evlogExpectCount?3:100, evlogExpectCount?`开始接收，共 ${evlogExpectCount} 条…`:'板载无记录');
+      addLog('info',`[板载记录] 板端共 ${evlogExpectCount} 条，开始接收`);
+      break;
+    case 'evlog_rec':
+      evlogRecords.push(m);
+      evlogGotCount++;
+      if(evlogGotCount%20===0 || evlogGotCount===evlogExpectCount){
+        const pct = evlogExpectCount? Math.min(99, Math.round(evlogGotCount/evlogExpectCount*100)) : 99;
+        _evlogSetProgress(pct, `接收中 ${evlogGotCount}/${evlogExpectCount} 条…`);
+      }
+      break;
+    case 'evlog_end': {
+      evlogDumping=false;
+      _evlogSetProgress(100, `✅ 接收完成：${m.sent} 条（跳过 ${m.skipped||0} 条损坏）`);
+      addLog('success',`[板载记录] 下载完成，共收到 ${m.sent} 条，准备导出文件…`);
+      if(evlogRecords.length>0){ evlogExportCSV(); }
+      setTimeout(()=>{ const b=document.getElementById('evlogProgress'); if(b) b.style.display='none'; }, 6000);
+      break;
+    }
+    case 'evlog_clear':
+      addLog(m.ok?'success':'error', m.ok?'[板载记录] 板载记录已清空':'[板载记录] 清空失败');
+      if(st && m.ok) st.innerHTML='板载记录已清空。';
+      break;
+    case 'evlog_busy':
+      evlogDumping=false;
+      addLog('warn','[板载记录] 设备忙，上一次导出还在进行，请稍候重试');
+      alert('设备正在导出中，请稍候再试');
+      break;
+    case 'evlog_error':
+      evlogDumping=false;
+      addLog('error','[板载记录] 设备错误：'+(m.err||'未知'));
+      break;
+  }
+}
+function evlogExportCSV(){
+  if(evlogRecords.length===0){ alert('没有可导出的板载记录'); return; }
+  const rows=[['时间','时间戳(Unix)','MAC','序列号SN','RSSI(dBm)','信道','协议','无人机纬度','无人机经度','飞手纬度','飞手经度','高度(m)','速度(m/s)','航向','电量(%)']];
+  // 时间正序（板端按最旧→最新发送，保险起见再排一次）
+  evlogRecords.sort((a,b)=>(a.ts||0)-(b.ts||0));
+  evlogRecords.forEach(r=>{
+    rows.push([
+      _evlogFmtTime(r.ts||0), r.ts||0, r.mac||'', r.sn||'', r.rssi??'',
+      r.ch===0?'BLE':r.ch, r.proto||'',
+      r.dlat||'', r.dlon||'', r.plat||'', r.plon||'',
+      r.alt!=null?r.alt:'', r.spd!=null?r.spd:'', r.hdg!=null?r.hdg:'', r.bat!=null?r.bat:''
+    ]);
+  });
+  const csv='\ufeff'+rows.map(row=>row.map(v=>{
+    const s=String(v);
+    return /[",\n]/.test(s)? '"'+s.replace(/"/g,'""')+'"' : s;
+  }).join(',')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const now=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  a.href=url;
+  a.download=`板载执勤记录_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
 function onBleData(e){
   const chunk=new TextDecoder().decode(e.target.value);
   _bleBuffer+=chunk;
@@ -2470,6 +2604,9 @@ function parseResp(text){
   // 配对结果处理
   if(text === 'PAIR_OK') { onPairResult(true); return; }
   if(text === 'PAIR_FAIL') { onPairResult(false); return; }
+
+  // v3.1.8: 板载证据日志导出消息（在 JSON.parse 之前拦截）
+  if(text.indexOf('"evt":"evlog')>=0){ try{ handleEvlog(JSON.parse(text)); }catch(e){ addLog('warn','[板载记录] 解析失败: '+e.message); } return; }
 
   if(text.startsWith('STATUS:')){
     // ★ 修复：先去掉STATUS:前缀，再按,拆分键值对
