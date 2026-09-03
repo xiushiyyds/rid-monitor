@@ -2056,14 +2056,26 @@ function handleEvlog(m){
 function evlogIngest(reportedSent){
   const recs=evlogRecords.filter(r=>r && r.evt==='evlog_rec');
   _evlogResetBtn();
+  const isIncremental = evlogSince > 0;
+  let skippedZero = 0;
+  if(isIncremental){
+    // v3.1.10: 增量模式跳过 ts=0 未授时旧记录（固件侧也跳过，双保险防重复入库）
+    const before=recs.length;
+    for(let i=recs.length-1;i>=0;i--){ if(!(recs[i].ts||0)){ recs.splice(i,1); skippedZero++; } }
+  }
   if(!recs.length){
-    addLog('info','[同步] 板载无新记录，执勤记录已是最新');
-    // 即便 0 条也把锚点推进到当前（避免下次重复请求空区间）
+    addLog('info','[同步] 板载无新记录，执勤记录已是最新'+(skippedZero?('（跳过'+skippedZero+'条未授时旧记录）'):''));
     evlogSetLastSync(Math.floor(Date.now()/1000));
     evlogRenderSyncTime();
     return;
   }
   recs.sort((a,b)=>(a.ts||0)-(b.ts||0));
+  // 全量模式且本批全部 ts=0（装GPS/对时前的旧记录）：锚点推进到当前手机时间，
+  // 之后对时生效的新记录走增量，旧 0 记录不再重复入库
+  const allZero = recs.every(r => !(r.ts||0));
+  if(allZero && !isIncremental){
+    evlogSetLastSync(Math.floor(Date.now()/1000));
+  }
 
   // 按 SN（无 SN 用 MAC）分组
   const groups=new Map();
@@ -2286,6 +2298,7 @@ function _saveAlertHistory(){
   }catch(e){}
 }
 function _fmtTime(ts){
+  if(!ts || ts < 1704067200000) return '未授时';
   const d = new Date(ts);
   const p = n => String(n).padStart(2,'0');
   return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
@@ -3438,6 +3451,8 @@ function onPairResult(ok) {
     // v3.1.9: 配对成功后启用板载同步按钮
     const sb=document.getElementById('evlogSyncBtn');
     if(sb && !evlogDumping){ sb.disabled=false; sb.style.cursor='pointer'; sb.style.opacity='1'; }
+    // v3.1.10: 配对成功自动对时（手机时间下发板子，GPS未装前evlog时间戳兜底）
+    try{ sendCmd('TIME_SYNC '+Math.floor(Date.now()/1000)); addLog('info','[对时] 已向侦测站下发手机时间'); }catch(e){}
   } else {
     isPaired = false;
     addLog('error', '[配对] 配对失败，配对码错误');
