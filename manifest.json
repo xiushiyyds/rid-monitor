@@ -1,20 +1,41 @@
 {
-  "name": "RID Station S3 无人机侦测",
-  "short_name": "RID侦测",
-  "description": "RID Station S3 蓝牙侦测监控终端：无人机远程识别信号实时监控、轨迹雷达、证据日志",
+  "name": "侦有用",
+  "short_name": "侦有用",
+  "description": "侦有用：RID Station S3 无人机远程识别侦测终端（蓝牙连接、实时雷达、轨迹与证据日志）",
   "start_url": "./s3.html",
   "scope": "./",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "portrait",
   "background_color": "#0a1c3a",
   "theme_color": "#0a1c3a",
   "lang": "zh-CN",
   "dir": "ltr",
-  "categories": ["utilities", "productivity"],
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
   "icons": [
-    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
