@@ -1,72 +1,21 @@
-/* RID Station S3 PWA service worker
- * 策略：HTML/导航请求网络优先（保证固件配套页面随时更新），离线回退缓存；
- *       同源静态资源缓存优先+后台更新；高德地图 API 一律不缓存。 */
-const CACHE = 'rid-s3-v1';
-const SHELL = [
-  './s3.html',
-  './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/maskable-512.png',
-  './icons/apple-touch-icon.png',
-  './icons/favicon.png'
-];
+/* RID Station S3 PWA service worker —— 纯透传·自愈版
+ * 职责：仅配合 manifest 提供「可安装/全屏」能力；不拦截、不缓存任何请求，
+ *       所有资源一律直连网络，彻底避免缓存导致的页面/按钮异常。
+ * 自愈：activate 时清除本站点历史全部缓存版本（含旧的 rid-s3-v1）。 */
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())
-  );
+self.addEventListener('install', () => {
+  // 立即激活，不等旧 SW 退出
+  self.skipWaiting();
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
+      .then((keys) => Promise.all(keys.map((k) => caches.delete(k)))) // 清空所有旧缓存
+      .then(() => self.clients.claim()) // 立即接管页面
   );
 });
 
-function isAmap(url) {
-  return /(^|\.)(amap\.com|amap\.cn|autonavi\.com)$/.test(url.hostname);
-}
-
-self.addEventListener('fetch', (e) => {
-  const req = e.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (isAmap(url)) return; // 地图 SDK/瓦片走网络，不拦截
-
-  const navigateLike = req.mode === 'navigate' || /\.html(\?.*)?$/.test(url.pathname);
-
-  if (url.origin === self.location.origin && navigateLike) {
-    // 页面：网络优先，离线回退缓存
-    e.respondWith(
-      fetch(req)
-        .then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-          return resp;
-        })
-        .catch(() => caches.match(req).then((h) => h || caches.match('./s3.html')))
-    );
-    return;
-  }
-
-  // 其余同源资源：缓存优先，后台更新
-  if (url.origin === self.location.origin) {
-    e.respondWith(
-      caches.match(req).then((hit) => {
-        const network = fetch(req)
-          .then((resp) => {
-            if (resp && resp.ok) {
-              const copy = resp.clone();
-              caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-            }
-            return resp;
-          })
-          .catch(() => hit);
-        return hit || network;
-      })
-    );
-  }
-});
+// fetch 事件刻意不调用 respondWith：
+// 所有请求（页面/脚本/地图/接口）都走浏览器默认网络流程，SW 完全透明。
+self.addEventListener('fetch', () => {});
