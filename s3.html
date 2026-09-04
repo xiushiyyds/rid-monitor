@@ -7,6 +7,15 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>RID Station S3 蓝牙侦测监控 v3.0.0</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#0a1c3a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RID侦测">
+
 <script src="https://webapi.amap.com/loader.js"></script>
 <style>
 :root {
@@ -3327,6 +3336,14 @@ ${alertRows ? `<table><tr><th>序号</th><th>时间</th><th>区域</th><th>告�
 <p style="margin-top:30px">侦测人员签字：________________　　　审核人签字：________________</p>
 <p style="margin-top:10px">单位：大连市公安局　　　日期：______年____月____日</p>
 </div>
+<script>
+/* PWA service worker 注册（离线缓存/可安装） */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('SW register failed:', e); });
+  });
+}
+</script>
 </body></html>`;
 
   const blob = new Blob(['\ufeff'+html], {type:'application/msword'});
