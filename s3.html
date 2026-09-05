@@ -2285,7 +2285,7 @@ function notifyGeofence(sn, zoneName, levelName, extra){
 
 // ============ v2.2.13: 历史预警 ============
 const ALERT_HISTORY_KEY = 'rid_alert_history_v1';
-const ALERT_HISTORY_MAX = 500;
+const ALERT_HISTORY_MAX = 3000;
 let _alertHistory = [];
 let _unreadAlerts = 0;
 function _loadAlertHistory(){
@@ -3891,7 +3891,7 @@ function startChannelTimers(){
 const IDB_NAME = 'rid_monitor_db';
 const IDB_STORE = 'tracks';
 const IDB_VERSION = 1;
-const IDB_MAX_RECORDS = 500;
+const IDB_MAX_RECORDS = 5000;
 let _idb = null, _idbFailed = false, _memHistoryCache = null;
 
 function openIdb(){
