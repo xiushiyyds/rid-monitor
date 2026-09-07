@@ -1875,8 +1875,16 @@ async function toggleConnect(){
 }
 function disconnect(){if(bleDevice&&bleDevice.gatt.connected)bleDevice.gatt.disconnect();onDisconnected()}
 function onDisconnected(){
+  const wasDumping = evlogDumping;
   isConnected=false;updateConnectionUI(false);
   addLog('warn','[BLE] 连接已断开');stopUptime();
+  if(wasDumping){
+    evlogDumping=false; _evlogOp='';
+    const pb=document.getElementById('evlogProgress');
+    if(pb) pb.style.display='none';
+    _evlogResetBtn();
+    addLog('warn','[板载记录] 蓝牙断开，板载下载/同步/清空已中止，可重新连接后重试');
+  }
   // v3.1.9: 断开时禁用同步按钮
   const sb=document.getElementById('evlogSyncBtn');
   if(sb){ sb.disabled=true; sb.style.cursor='not-allowed'; sb.style.opacity='0.5'; }
@@ -2058,16 +2066,19 @@ function handleEvlog(m){
       // 板子拒绝：有导出/擦除在跑。若本次是清空被拒，仅提示；若网页侧状态已残留则复位
       if(_evlogOp==='clear'){
         evlogDumping=false; _evlogOp=''; _evlogResetBtn();
+        { const pb=document.getElementById('evlogProgress'); if(pb) pb.style.display='none'; }
         addLog('warn','[板载记录] 板子正忙（下载/擦除中），清空未执行，请等进度条结束后再点一次');
         alert('板子正在处理记录，请等下载/同步进度条走完（约1-2分钟）后再清空');
       } else {
         evlogDumping=false; _evlogResetBtn();
-        evlogDumping=false; _evlogResetBtn();
+        { const pb=document.getElementById('evlogProgress'); if(pb) pb.style.display='none'; }
         addLog('warn','[板载记录] 设备忙，上一次导出还在进行，请稍候重试');
+        alert('设备正在导出中，请稍候再试');
       }
       break;
     case 'evlog_error':
       evlogDumping=false; _evlogOp=''; _evlogResetBtn();
+      { const pb=document.getElementById('evlogProgress'); if(pb) pb.style.display='none'; }
       addLog('error','[板载记录] 设备错误：'+(m.err||'未知'));
       break;
   }
@@ -2168,7 +2179,9 @@ function evlogIngest(reportedSent){
     evlogRenderSyncTime();
     addLog('success',`[同步] ✅ 完成：${groups.size} 个目标 / ${recs.length} 条记录，新增轨迹 ${trackCount} 段（${pointCount} 个坐标点）、预警 ${alertCount} 条。已并入历史记录与预警，可上地图回放`);
   }).catch(e=>{
-    addLog('error','[同步] 入库失败：'+e.message);
+    evlogDumping=false; _evlogOp=''; _evlogResetBtn();
+    { const pb=document.getElementById('evlogProgress'); if(pb) pb.style.display='none'; }
+    addLog('error','[同步] 入库失败：'+e.message+'（可重新连接后重试同步）');
   });
 }
 function evlogExportCSV(){
@@ -2188,15 +2201,10 @@ function evlogExportCSV(){
     const s=String(v);
     return /[",\n]/.test(s)? '"'+s.replace(/"/g,'""')+'"' : s;
   }).join(',')).join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
   const now=new Date();
   const p=n=>String(n).padStart(2,'0');
-  a.href=url;
-  a.download=`板载执勤记录_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.csv`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+  _downloadFile(csv, `板载执勤记录_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.csv`, 'text/csv;charset=utf-8');
+  addLog('success', `[板载记录] 板载记录已导出为 CSV（${evlogRecords.length} 条）`);
 }
 function onBleData(e){
   const chunk=new TextDecoder().decode(e.target.value);
@@ -4558,7 +4566,8 @@ function _downloadFile(content, filename, mime){
   const a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  // 延迟回收：大文件（板载记录可达数万条）下载桥分片回传需要时间，1秒会过早释放
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
 }
 function _kmlTs(){
   const n = new Date();
