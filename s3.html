@@ -1994,9 +1994,11 @@ function evlogClear(){
   if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
   if(evlogDumping){ alert('板载记录正在下载/同步中，请等进度条走完（约1-2分钟）再清空，否则板子会拒绝清空。'); return; }
   if(!confirm('确定清空板载全部执勤记录？此操作不可恢复，建议先下载备份。')) return;
-  _evlogOp='clear';
+  _evlogOp='clear'; evlogDumping=true;
+  const stc=document.getElementById('evlogStatus');
+  if(stc) stc.innerHTML='🧹 正在清空板载记录（板子擦除 flash 中，约需 10～30 秒）…';
   sendCmd('EVLOG_CLEAR');
-  addLog('warn','[板载记录] 已请求清空…板子擦除flash需要约3-5秒，请稍候');
+  addLog('warn','[板载记录] 已请求清空，板子正在擦除 flash，请稍候…');
 }
 let evlogSince=0, evlogOldest=0;
 function _evlogResetBtn(){
@@ -2049,15 +2051,17 @@ function handleEvlog(m){
     }
     case 'evlog_clear':
       addLog(m.ok?'success':'error', m.ok?'[板载记录] 板载记录已清空':'[板载记录] 清空失败');
-      if(st && m.ok) st.innerHTML='板载记录已清空。';
-      _evlogOp='';
+      if(st) st.innerHTML = m.ok ? '板载记录已清空。' : '清空失败：'+(m.err||'设备错误');
+      evlogDumping=false; _evlogOp=''; _evlogResetBtn();
       break;
     case 'evlog_busy':
       // 板子拒绝：有导出/擦除在跑。若本次是清空被拒，仅提示；若网页侧状态已残留则复位
       if(_evlogOp==='clear'){
+        evlogDumping=false; _evlogOp=''; _evlogResetBtn();
         addLog('warn','[板载记录] 板子正忙（下载/擦除中），清空未执行，请等进度条结束后再点一次');
         alert('板子正在处理记录，请等下载/同步进度条走完（约1-2分钟）后再清空');
       } else {
+        evlogDumping=false; _evlogResetBtn();
         evlogDumping=false; _evlogResetBtn();
         addLog('warn','[板载记录] 设备忙，上一次导出还在进行，请稍候重试');
       }
