@@ -2464,13 +2464,7 @@ function exportAlertsCSV(){
     }
   });
   const csv = '﻿' + rows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(',')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `rid-alerts-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  _downloadFile(csv, `rid-alerts-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`, 'text/csv;charset=utf-8');
 }
 
 // 顶部临时横幅（成功/告警两种样式），自动消失
@@ -3338,13 +3332,7 @@ ${alertRows ? `<table><tr><th>序号</th><th>时间</th><th>区域</th><th>告�
 </div>
 </body></html>`;
 
-  const blob = new Blob(['\ufeff'+html], {type:'application/msword'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `RID侦测报告_${serialNo}.doc`;
-  a.click();
-  URL.revokeObjectURL(url);
+  _downloadFile('\ufeff'+html, `RID侦测报告_${serialNo}.doc`, 'application/msword');
   addLog('success', `[导出] 已生成执法报告（${ids.length}个目标）`);
 }
 
@@ -3394,15 +3382,9 @@ function exportCSV() {
   // 生成 CSV（带 BOM 以支持 Excel 中文显示）
   const BOM = '\uFEFF';
   const csvContent = BOM + [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
   const now = new Date();
   const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-  a.download = `RID侦测记录_${ts}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  _downloadFile(csvContent, `RID侦测记录_${ts}.csv`, 'text/csv;charset=utf-8;');
   addLog('success', `[导出] 已导出 ${rows.length} 条侦测记录`);
 }
 
