@@ -1930,7 +1930,7 @@ function sendCmd(cmd){
 /* ============ v3.1.8/v3.1.9: 板载证据日志（evlog）导出+同步 ============ */
 const EVLOG_SYNC_KEY='rid_evlog_last_sync_unix';   // 上次同步 Unix 秒
 let evlogRecords=[];          // 本次 dump 收到的记录
-let evlogDumping=false;
+let evlogDumping=false; let _evlogOp='';
 let evlogExpectCount=0, evlogGotCount=0;
 let evlogMode='csv';          // 'csv'=下载文件 | 'sync'=同步进预警/历史
 
@@ -1970,7 +1970,7 @@ function evlogDump(){
   if(evlogDumping){ addLog('warn','[板载记录] 正在导出中，请稍候…'); return; }
   evlogRecords=[]; evlogGotCount=0; evlogExpectCount=0;
   evlogMode='csv';
-  evlogDumping=true;
+  evlogDumping=true; _evlogOp='dump';
   _evlogSetProgress(2,'请求板载记录…');
   sendCmd('EVLOG_DUMP');
   addLog('info','[板载记录] 开始下载离线执勤记录…');
@@ -1982,7 +1982,7 @@ function evlogSync(){
   const last=evlogGetLastSync();
   evlogRecords=[]; evlogGotCount=0; evlogExpectCount=0;
   evlogMode='sync';
-  evlogDumping=true;
+  evlogDumping=true; _evlogOp='sync';
   const sb=document.getElementById('evlogSyncBtn');
   if(sb){ sb.disabled=true; sb.style.opacity='0.6'; sb.textContent='🔄 同步中…'; }
   _evlogSetProgress(3, last?('请求增量记录（自 '+_evlogFmtTime(last)+'）…'):'首次同步，请求全量记录…');
@@ -1992,9 +1992,11 @@ function evlogSync(){
 }
 function evlogClear(){
   if(!isConnected){ alert('请先蓝牙连接 S3 侦测站'); return; }
+  if(evlogDumping){ alert('板载记录正在下载/同步中，请等进度条走完（约1-2分钟）再清空，否则板子会拒绝清空。'); return; }
   if(!confirm('确定清空板载全部执勤记录？此操作不可恢复，建议先下载备份。')) return;
+  _evlogOp='clear';
   sendCmd('EVLOG_CLEAR');
-  addLog('warn','[板载记录] 已请求清空…');
+  addLog('warn','[板载记录] 已请求清空…板子擦除flash需要约3-5秒，请稍候');
 }
 let evlogSince=0, evlogOldest=0;
 function _evlogResetBtn(){
@@ -2029,7 +2031,7 @@ function handleEvlog(m){
       }
       break;
     case 'evlog_end': {
-      evlogDumping=false;
+      evlogDumping=false; _evlogOp='';
       const n=m.sent||0;
       _evlogSetProgress(100, `✅ 接收完成：${n} 条（跳过 ${m.skipped||0} 条损坏）`);
       if(evlogMode==='sync'){
@@ -2048,14 +2050,20 @@ function handleEvlog(m){
     case 'evlog_clear':
       addLog(m.ok?'success':'error', m.ok?'[板载记录] 板载记录已清空':'[板载记录] 清空失败');
       if(st && m.ok) st.innerHTML='板载记录已清空。';
+      _evlogOp='';
       break;
     case 'evlog_busy':
-      evlogDumping=false; _evlogResetBtn();
-      addLog('warn','[板载记录] 设备忙，上一次导出还在进行，请稍候重试');
-      alert('设备正在导出中，请稍候再试');
+      // 板子拒绝：有导出/擦除在跑。若本次是清空被拒，仅提示；若网页侧状态已残留则复位
+      if(_evlogOp==='clear'){
+        addLog('warn','[板载记录] 板子正忙（下载/擦除中），清空未执行，请等进度条结束后再点一次');
+        alert('板子正在处理记录，请等下载/同步进度条走完（约1-2分钟）后再清空');
+      } else {
+        evlogDumping=false; _evlogResetBtn();
+        addLog('warn','[板载记录] 设备忙，上一次导出还在进行，请稍候重试');
+      }
       break;
     case 'evlog_error':
-      evlogDumping=false; _evlogResetBtn();
+      evlogDumping=false; _evlogOp=''; _evlogResetBtn();
       addLog('error','[板载记录] 设备错误：'+(m.err||'未知'));
       break;
   }
