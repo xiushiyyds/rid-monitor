@@ -430,7 +430,8 @@ body {
       <h3>📊 运行状态</h3>
       <div class="info-grid">
         <div class="info-item"><div class="label">活跃目标</div><div class="value green" id="activeTargets">0</div></div>
-        <div class="info-item"><div class="label">固件版本</div><div class="value blue" id="firmwareVer">--</div></div>
+        <div class="info-item"><div class="label">设备固件</div><div class="value blue" id="firmwareVer">--</div></div>
+        <div class="info-item"><div class="label">APP版本</div><div class="value blue" id="appVer">--</div></div>
         <div class="info-item"><div class="label">GPS 状态</div><div class="value orange" id="gpsStatus">未定位</div></div>
         <div class="info-item"><div class="label">运行时间</div><div class="value" id="uptime">00:00:00</div></div>
         <div class="info-item"><div class="label">当前信道</div><div class="value" id="currentChannel">--</div></div>
@@ -626,6 +627,9 @@ function gcj02ToWgs84(lng,lat){
   }
   return[wLng,wLat];
 }
+
+// ============ 网页/APP 版本号（每次发版改这里，状态栏常驻显示）============
+const APP_VERSION = 'v3.2.0';
 
 // ============ SN 前缀 → 品牌/型号映射 ============
 // v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
@@ -4611,7 +4615,7 @@ function buildKML(placemarks){
   kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n';
   kml += '<Document>\n';
   kml += '  <name>RID 侦测轨迹导出</name>\n';
-  kml += '  <description>由 RID 侦测监控 v3.2.0 导出。坐标为 WGS-84（EPSG:4326，OGC KML 标准），可直接在 Google Earth / ArcGIS / QGIS 无偏移打开；导入高德/奥维时请选择 WGS-84 源坐标系。</description>\n';
+  kml += '  <description>由 RID 侦测监控 '+APP_VERSION+' 导出。坐标为 WGS-84（EPSG:4326，OGC KML 标准），可直接在 Google Earth / ArcGIS / QGIS 无偏移打开；导入高德/奥维时请选择 WGS-84 源坐标系。</description>\n';
   kml += '  <Style id="ridLine"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>\n';
   kml += '  <Style id="ridStart"><IconStyle><color>ff00ff00</color><scale>1</scale></IconStyle></Style>\n';
   kml += '  <Style id="ridEnd"><IconStyle><color>ff0000ff</color><scale>1</scale></IconStyle></Style>\n';
@@ -4723,6 +4727,7 @@ window.addEventListener('load',()=>{
   initMap();startStaleCleanTimer();initV230();
   setTimeout(updateGpsStat,500);
   try{const v=localStorage.getItem('rid_fw_ver');if(v)document.getElementById('firmwareVer').textContent=v;}catch(e){}
+  try{const av=document.getElementById('appVer');if(av)av.textContent=APP_VERSION;}catch(e){}
   try{ evlogRenderSyncTime(); }catch(e){}
   try{
     _loadAlertHistory();
