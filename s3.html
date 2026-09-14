@@ -615,6 +615,17 @@ function wgs84ToGcj02(lng,lat){
   dLng=(dLng*180)/(A/sm*Math.cos(rLat)*PI);
   return[lng+dLng,lat+dLat];
 }
+// GCJ-02 → WGS-84（迭代反算，偏移场局部近似；3次迭代误差<1e-9度，供导出表格/报告使用）。入参/返回均 [经度,纬度]
+function gcj02ToWgs84(lng,lat){
+  if(outOfChina(lng,lat))return[lng,lat];
+  let wLng=lng, wLat=lat;
+  for(let i=0;i<3;i++){
+    const [gLng,gLat]=wgs84ToGcj02(wLng,wLat);
+    wLng += lng-gLng;
+    wLat += lat-gLat;
+  }
+  return[wLng,wLat];
+}
 
 // ============ SN 前缀 → 品牌/型号映射 ============
 // v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
@@ -1143,7 +1154,8 @@ function updateDroneOnMap(id, wgsLat, wgsLon, alt, speed, heading, sn, opLat, op
     op_lat:Number(opLat), op_lon:Number(opLon), ua_type:uaType||'未知'
   });
   // 记录轨迹历史（上限100点，64架=6400点，控制内存）
-  droneData[id].history.push({ lat:gcjLat, lng:gcjLng, t:Date.now(), alt:Number(alt)||0, speed:Number(speed)||0 });
+  // lat/lng 存 GCJ-02（地图/回放用，匹配高德底图）；wgsLat/wgsLng 存原始 WGS-84（KML/CSV导出用）
+  droneData[id].history.push({ lat:gcjLat, lng:gcjLng, t:Date.now(), alt:Number(alt)||0, speed:Number(speed)||0, heading:Number(heading)||0, wgsLat:Number(wgsLat), wgsLng:Number(wgsLon) });
   if(droneData[id].history.length > 100) droneData[id].history.shift();
   droneData[id]._lastSeen = Date.now(); // 用于过期清理
 
@@ -1813,6 +1825,9 @@ function calcDistanceRaw(lat1,lng1,lat2,lng2){
 }
 
 function clearAllDrones(){
+  // v3.2.0: 先把在场目标落历史（手动断开/蓝牙掉线/重连/收队都走这里；
+  // 旧逻辑直接清空，没等到30秒超时的目标轨迹全部丢失）。saveTrackToHistory 内部自动判重。
+  Object.keys(droneData).forEach(id=>{ try{ saveTrackToHistory(id); }catch(e){ console.warn('落历史失败',id,e); } });
   Object.keys(droneMarkers).forEach(id=>{
     map.remove(droneMarkers[id]);
     if(droneMarkers[id]._trailLine) map.remove(droneMarkers[id]._trailLine);
@@ -2128,16 +2143,26 @@ function evlogIngest(reportedSent){
     if((last.ts||0)>maxTs) maxTs=last.ts||0;
 
     // 轨迹点：有无人机坐标的记录
-    const trackPoints=pts.filter(p=>p.dlat&&p.dlon).map(p=>({
-      lat:p.dlat, lng:p.dlon, t:(p.ts||0)*1000,
-      alt:(p.alt!=null?p.alt:null), speed:(p.spd!=null?p.spd:null)
-    }));
+    // v3.2.0修复：板载固件存的是 RID 原始 WGS-84（已核实固件无任何GCJ转换），
+    // 历史轨迹/地图/回放/KML 统一 GCJ-02，这里必须转换，否则离线同步轨迹在高德上整体偏移几百米
+    const trackPoints=pts.filter(p=>p.dlat&&p.dlon).map(p=>{
+      const [glng,glat]=wgs84ToGcj02(p.dlon,p.dlat); // 注意函数返回 [经度,纬度]
+      return {
+        lat:glat, lng:glng, t:(p.ts||0)*1000,
+        alt:(p.alt!=null?p.alt:null), speed:(p.spd!=null?p.spd:null),
+        heading:(p.hdg!=null?p.hdg:null),
+        wgsLat:p.dlat, wgsLng:p.dlon // 保留 WGS-84 原始坐标供导出
+      };
+    });
     const rssiHist=pts.filter(p=>p.rssi!=null).map(p=>({t:(p.ts||0)*1000, r:p.rssi}));
-    let maxAlt=0; trackPoints.forEach(p=>{ if(p.alt&&p.alt>maxAlt) maxAlt=p.alt; });
+    let maxAlt=0, maxSpeed=0;
+    trackPoints.forEach(p=>{ if(p.alt&&p.alt>maxAlt) maxAlt=p.alt; if(p.speed&&p.speed>maxSpeed) maxSpeed=p.speed; });
     let avgRssi=null;
     if(rssiHist.length) avgRssi=rssiHist.reduce((s,p)=>s+p.r,0)/rssiHist.length;
 
     const bi = isMac ? {brand:'',model:''} : (typeof lookupSN==='function'?lookupSN(realSn, first.mac):{brand:'',model:''});
+    // 飞手坐标 WGS-84 原样保留（字段单独标注，详情展示时转换）
+    const opWgsLat=(last.plat||null), opWgsLon=(last.plon||null);
     const rec={
       id: 'SYNC_'+sn+'_'+(first.ts||0),
       sn: realSn || first.mac || sn,
@@ -2150,6 +2175,13 @@ function evlogIngest(reportedSent){
       avgRssi: avgRssi,
       lastRssi: (last.rssi!=null?last.rssi:null),
       channel: (last.ch===0?null:last.ch),
+      // v3.2.0: 补全字段
+      uaType: (typeof uaTypeCN==='function'?uaTypeCN(first.ut):('')),
+      isDji: !!((first.flags!==undefined)?(first.flags&1):(first.proto===1)),
+      battery: (last.bat!=null && last.bat!==0)?last.bat:null,
+      maxSpeed: maxSpeed,
+      opLatWgs: opWgsLat, opLonWgs: opWgsLon,
+      mac: first.mac||'',
       _offlineSync: true
     };
     putJobs.push(histPut(rec).then(()=>{ trackCount++; pointCount+=trackPoints.length; }));
@@ -2165,6 +2197,7 @@ function evlogIngest(reportedSent){
         rssi: (first.rssi!=null?first.rssi:null),
         zone:'', level:'离线同步',
         model: (bi.model||bi.brand||(isMac?'蓝牙/MAC目标':'未知')),
+        // loc 已是 GCJ-02，直接存
         lat: loc?loc.lat:null, lon: loc?loc.lng:null, alt: loc?loc.alt:null
       });
       alertCount++;
@@ -2186,7 +2219,8 @@ function evlogIngest(reportedSent){
 }
 function evlogExportCSV(){
   if(evlogRecords.length===0){ alert('没有可导出的板载记录'); return; }
-  const rows=[['时间','时间戳(Unix)','MAC','序列号SN','RSSI(dBm)','信道','协议','无人机纬度','无人机经度','飞手纬度','飞手经度','高度(m)','速度(m/s)','航向','电量(%)']];
+  // 板载记录为 RID 协议原始 WGS-84（固件未做任何坐标转换），表头明确标注
+  const rows=[['时间','时间戳(Unix)','MAC','序列号SN','RSSI(dBm)','信道','协议','无人机纬度(WGS84)','无人机经度(WGS84)','飞手纬度(WGS84)','飞手经度(WGS84)','高度(m)','速度(m/s)','航向','电量(%)']];
   // 时间正序（板端按最旧→最新发送，保险起见再排一次）
   evlogRecords.sort((a,b)=>(a.ts||0)-(b.ts||0));
   evlogRecords.forEach(r=>{
@@ -2472,16 +2506,17 @@ function clearAlertHistory(){
 }
 function exportAlertsCSV(){
   if(!_alertHistory.length){ alert('暂无预警记录'); return; }
-  const rows = [['时间','类型','SN/标识','型号/区域','等级','RSSI','纬度','经度','高度']];
+  // v3.2.0: 预警内坐标存 GCJ-02（高德底图），表格按要求导出 WGS-84，这里反算
+  const rows = [['时间','类型','SN/标识','型号/区域','等级','RSSI','WGS纬度','WGS经度','高度(m)']];
   _alertHistory.forEach(a => {
     const t = _fmtTime(a.t);
-    if(a.type === 'new'){
-      rows.push([t,'新目标',a.sn||'',a.model||'','',a.rssi??'','','','']);
-    } else if(a.type === 'geo'){
-      rows.push([t,'围栏告警',a.sn||'',a.zone||'',a.level||'',a.rssi??'',a.lat??'',a.lon??'',a.alt??'']);
-    } else {
-      rows.push([t,'信号消失',a.sn||'','','',a.rssi??'','','','']);
+    let wLat='', wLon='';
+    if(a.lat!==undefined && a.lat!==null && a.lon!==undefined && a.lon!==null){
+      const [wl,wn]=gcj02ToWgs84(a.lon,a.lat);
+      wLat=wn.toFixed(6); wLon=wl.toFixed(6);
     }
+    const typeName = a.type==='new'?'新目标':(a.type==='geo'?'围栏告警':'信号消失');
+    rows.push([t,typeName,a.sn||'',a.model||a.zone||'',a.level||'',a.rssi??'',wLat,wLon,a.alt??'']);
   });
   const csv = '﻿' + rows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(',')).join('\n');
   _downloadFile(csv, `rid-alerts-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`, 'text/csv;charset=utf-8');
@@ -3294,21 +3329,30 @@ function exportReport() {
     </tr>`;
   });
 
-  // 告警记录
-  if(typeof alertHistory !== 'undefined' && alertHistory.length > 0) {
-    alertHistory.forEach((a, i) => {
+  // v3.2.0修复：原引用不存在的 alertHistory（实际为 _alertHistory），导致围栏告警表永远为空；
+  // 且 a.time 是 'HH:MM:SS' 文本，new Date() 会得到 Invalid Date，直接展示即可。
+  // 预警存的是 GCJ-02（高德底图坐标），执法报告按要求统一用 WGS-84，导出时反算
+  if(typeof _alertHistory !== 'undefined' && _alertHistory.length > 0) {
+    const today = new Date().toLocaleDateString();
+    _alertHistory.forEach((a, i) => {
+      let wgsTxt='—';
+      if(a.lat!==undefined&&a.lat!==null&&a.lon!==undefined&&a.lon!==null){
+        const [wl,wn]=gcj02ToWgs84(a.lon,a.lat);
+        wgsTxt=wn.toFixed(6)+', '+wl.toFixed(6);
+      }
       alertRows += `<tr>
         <td style="border:1px solid #999;padding:4px 8px">${i+1}</td>
-        <td style="border:1px solid #999;padding:4px 8px">${new Date(a.time).toLocaleString()}</td>
-        <td style="border:1px solid #999;padding:4px 8px">${a.zone||'—'}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${today} ${a.time||''}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.zone||(a.type==='new'?'新目标':(a.type==='timeout'?'信号消失':'围栏告警'))}</td>
         <td style="border:1px solid #999;padding:4px 8px">${a.level||'—'}</td>
-        <td style="border:1px solid #999;padding:4px 8px">${a.sn||'—'}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${a.sn||a.id||'—'}</td>
+        <td style="border:1px solid #999;padding:4px 8px">${wgsTxt}</td>
       </tr>`;
     });
   }
-
-  const gpsTxt = (typeof gpsData !== 'undefined' && gpsData.lat) ?
-    `${gpsData.lat.toFixed(6)}, ${gpsData.lon.toFixed(6)}` : '未定位';
+  // v3.2.0修复：原引用不存在的 gpsData，侦测位置长期显示“未定位”；本机定位本就是 WGS-84 直接展示
+  const gpsTxt = (selfWgsLat!==null && selfWgsLon!==null) ?
+    (selfWgsLat.toFixed(6)+', '+selfWgsLon.toFixed(6)+' (WGS-84)') : '未定位';
   const fwVer = document.getElementById('firmwareVer')?.textContent || '—';
 
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -3334,14 +3378,14 @@ ${rows || '<tr><td colspan="14" style="border:1px solid #999;padding:20px;text-a
 </table>
 
 <div class="section">二、围栏告警记录</div>
-${alertRows ? `<table><tr><th>序号</th><th>时间</th><th>区域</th><th>告警等级</th><th>目标SN</th></tr>${alertRows}</table>` : '<p style="color:#666">本次无围栏告警记录。</p>'}
+${alertRows ? `<table><tr><th>序号</th><th>时间</th><th>事件</th><th>告警等级</th><th>目标SN</th><th>位置(WGS-84)</th></tr>${alertRows}</table>` : '<p style="color:#666">本次无围栏告警记录。</p>'}
 
 <div class="section">三、统计摘要</div>
 <table class="info-table">
 <tr><td style="border:1px solid #999;padding:6px 10px">侦测目标总数</td><td style="border:1px solid #999;padding:6px 10px">${ids.length} 架</td>
     <td style="border:1px solid #999;padding:6px 10px">累计轨迹点数</td><td style="border:1px solid #999;padding:6px 10px">${totalTracks} 个</td></tr>
 <tr><td style="border:1px solid #999;padding:6px 10px">最强信号RSSI</td><td style="border:1px solid #999;padding:6px 10px">${maxRssi > -200 ? maxRssi+' dBm' : '—'}</td>
-    <td style="border:1px solid #999;padding:6px 10px">围栏告警数</td><td style="border:1px solid #999;padding:6px 10px">${(typeof alertHistory!=='undefined')?alertHistory.length:0} 次</td></tr>
+    <td style="border:1px solid #999;padding:6px 10px">围栏告警数</td><td style="border:1px solid #999;padding:6px 10px">${(typeof _alertHistory!=='undefined')?_alertHistory.filter(a=>a.type==='geofence').length:0} 次</td></tr>
 </table>
 
 <div class="footer">
@@ -4047,7 +4091,12 @@ function saveTrackToHistory(id){
   const firstSeen = d._firstSeen || (d.history && d.history.length ? d.history[0].t : Date.now());
   const lastSeen = d._lastSeen || Date.now();
   // 没轨迹也存基本信息（任务要求：无GPS的肩灯只存基本信息+RSSI）
-  const trackPoints = (d.history || []).map(p=>({lat:p.lat, lng:p.lng, t:p.t, alt:p.alt||null, speed:p.speed||null}));
+  // 轨迹点 lat/lng 为 GCJ-02（地图/回放/KML用），wgsLat/wgsLng 保留原始 WGS-84 供表格导出
+  const trackPoints = (d.history || []).map(p=>({
+    lat:p.lat, lng:p.lng, t:p.t, alt:p.alt||null, speed:p.speed||null,
+    heading:(p.heading!==undefined?p.heading:null),
+    wgsLat:(p.wgsLat!==undefined?p.wgsLat:null), wgsLng:(p.wgsLng!==undefined?p.wgsLng:null)
+  }));
   // 平均/最大高度
   let maxAlt = 0;
   trackPoints.forEach(p=>{ if(p.alt && p.alt>maxAlt) maxAlt = p.alt; });
@@ -4070,7 +4119,16 @@ function saveTrackToHistory(id){
     maxAlt: maxAlt,
     avgRssi: avgRssi,
     lastRssi: lastRssi,
-    channel: d.channel || null
+    channel: d.channel || null,
+    // v3.2.0: 补全执法所需字段（历史记录信息不再缺失）
+    uaType: d.ua_type || '',
+    isDji: !!d.is_dji,
+    // 飞手坐标 WGS-84 原始值（与GCJ轨迹分开存）
+    opLatWgs: (d.op_lat || null),
+    opLonWgs: (d.op_lon || null),
+    battery: (d.dji_battery !== undefined ? d.dji_battery : null),
+    maxSpeed: trackPoints.reduce((m,p)=>Math.max(m, p.speed||0), 0),
+    mac: d._lastMAC || ''
   };
   histPut(rec).then(()=>{
     addLog('info', `[历史] 已保存轨迹: ${sn} (${trackPoints.length}点)`);
@@ -4112,18 +4170,26 @@ function renderHistoryList(){
       const pts = rec.trackPoints ? rec.trackPoints.length : 0;
       const rssiN = rec.rssiHist ? rec.rssiHist.length : 0;
       const dur = (rec.firstSeen && rec.lastSeen) ? _fmtDur(rec.lastSeen - rec.firstSeen) : '--';
-      const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || '未知');
+      const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || (rec.isDji?'DJI':'未知'));
+      const typeText = rec.uaType ? String(rec.uaType) : '';
+      const batText = (rec.battery!==null && rec.battery!==undefined) ? rec.battery+'%' : '';
+      const hasOp = (rec.opLatWgs||rec.opLat) && (rec.opLonWgs||rec.opLon);
       html += `<div class="hist-item">
         <div class="hist-row1">
           <span class="brand-tag brand-dji">${brandText}</span>
           <span class="hist-sn">${rec.sn || rec.id}</span>
+          ${typeText?`<span style="font-size:10px;color:#909399">${typeText}</span>`:''}
+          ${batText?`<span style="font-size:10px;color:#67c23a">🔋${batText}</span>`:''}
           ${rec.channel?`<span style="font-size:10px;color:#409eff">CH${rec.channel}</span>`:''}
+          ${hasOp?`<span style="font-size:10px;color:#e6a23c">📍已上报飞手</span>`:''}
+          ${rec._offlineSync?`<span style="font-size:9px;color:#909399;border:1px solid #dcdfe6;border-radius:3px;padding:0 3px">板载同步</span>`:''}
         </div>
         <div class="hist-meta">
           <span>首次: <b>${_fmtHistTime(rec.firstSeen)}</b></span>
           <span>最后: <b>${_fmtHistTime(rec.lastSeen)}</b></span>
           <span>时长: <b>${dur}</b></span>
           <span>轨迹点: <b>${pts}</b></span>
+          <span>最大速度: <b>${(rec.maxSpeed!==undefined&&rec.maxSpeed)?(rec.maxSpeed*3.6).toFixed(1)+'km/h':'--'}</b></span>
           <span>最后RSSI: <b>${rec.lastRssi!==null&&rec.lastRssi!==undefined?rec.lastRssi+'dBm':'--'}</b></span>
         </div>
         <div class="hist-actions">
@@ -4531,30 +4597,35 @@ function _kmlEscape(s){
   if(s === undefined || s === null) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function _kmlCoordsFromGcj(pts){
-  // KML 标准是 WGS-84，但此处按需求直接使用 GCJ-02 坐标（在中国区高德/Google Earth 显示更准）
-  return pts.map(p=>p[0].toFixed(6)+','+p[1].toFixed(6)+',0').join(' ');
+// 入参 pts 为内部 GCJ-02 点 [[lng,lat],...]，KML(OGC KML2.2) 标准要求 WGS-84，统一反算后输出
+function _kmlWgsPts(pts){
+  return pts.map(p=>{
+    const [wl,wn]=gcj02ToWgs84(p[0],p[1]);
+    return [wl,wn];
+  });
 }
+function _kmlCoordStr(pt){ return pt[0].toFixed(6)+','+pt[1].toFixed(6)+',0'; }
 function buildKML(placemarks){
-  // placemarks: [{name, desc, pts(GCJ[[lng,lat]]), start, end}]
+  // placemarks: [{name, desc, pts(内部GCJ[[lng,lat]]), start, end}]；导出时统一转 WGS-84
   let kml = '<?xml version="1.0" encoding="UTF-8"?>\n';
   kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n';
   kml += '<Document>\n';
   kml += '  <name>RID 侦测轨迹导出</name>\n';
-  kml += '  <description>由 RID 侦测监控 v2.3.3 导出。坐标为 GCJ-02（火星坐标），在高德地图/Google Earth 中国区显示无偏移。</description>\n';
+  kml += '  <description>由 RID 侦测监控 v3.2.0 导出。坐标为 WGS-84（EPSG:4326，OGC KML 标准），可直接在 Google Earth / ArcGIS / QGIS 无偏移打开；导入高德/奥维时请选择 WGS-84 源坐标系。</description>\n';
   kml += '  <Style id="ridLine"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>\n';
   kml += '  <Style id="ridStart"><IconStyle><color>ff00ff00</color><scale>1</scale></IconStyle></Style>\n';
   kml += '  <Style id="ridEnd"><IconStyle><color>ff0000ff</color><scale>1</scale></IconStyle></Style>\n';
   placemarks.forEach(pm=>{
+    const wpts = _kmlWgsPts(pm.pts);
     kml += '  <Placemark>\n';
     kml += '    <name>'+_kmlEscape(pm.name)+'</name>\n';
     if(pm.desc) kml += '    <description>'+_kmlEscape(pm.desc)+'</description>\n';
     kml += '    <styleUrl>#ridLine</styleUrl>\n';
-    kml += '    <LineString><coordinates>'+_kmlCoordsFromGcj(pm.pts)+'</coordinates></LineString>\n';
+    kml += '    <LineString><coordinates>'+wpts.map(_kmlCoordStr).join(' ')+'</coordinates></LineString>\n';
     kml += '  </Placemark>\n';
-    if(pm.pts.length>=1){
-      kml += '  <Placemark><name>'+_kmlEscape(pm.name)+' 起点</name><styleUrl>#ridStart</styleUrl><Point><coordinates>'+pm.pts[0][0].toFixed(6)+','+pm.pts[0][1].toFixed(6)+',0</coordinates></Point></Placemark>\n';
-      kml += '  <Placemark><name>'+_kmlEscape(pm.name)+' 终点</name><styleUrl>#ridEnd</styleUrl><Point><coordinates>'+pm.pts[pm.pts.length-1][0].toFixed(6)+','+pm.pts[pm.pts.length-1][1].toFixed(6)+',0</coordinates></Point></Placemark>\n';
+    if(wpts.length>=1){
+      kml += '  <Placemark><name>'+_kmlEscape(pm.name)+' 起点</name><styleUrl>#ridStart</styleUrl><Point><coordinates>'+_kmlCoordStr(wpts[0])+'</coordinates></Point></Placemark>\n';
+      kml += '  <Placemark><name>'+_kmlEscape(pm.name)+' 终点</name><styleUrl>#ridEnd</styleUrl><Point><coordinates>'+_kmlCoordStr(wpts[wpts.length-1])+'</coordinates></Point></Placemark>\n';
     }
   });
   kml += '</Document>\n</kml>\n';
