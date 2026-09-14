@@ -1828,10 +1828,12 @@ function calcDistanceRaw(lat1,lng1,lat2,lng2){
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-function clearAllDrones(){
-  // v3.2.0: 先把在场目标落历史（手动断开/蓝牙掉线/重连/收队都走这里；
-  // 旧逻辑直接清空，没等到30秒超时的目标轨迹全部丢失）。saveTrackToHistory 内部自动判重。
-  Object.keys(droneData).forEach(id=>{ try{ saveTrackToHistory(id); }catch(e){ console.warn('落历史失败',id,e); } });
+function clearAllDrones(persist){
+  // v3.2.0: persist=true（断开/掉线/收队）时先把在场目标落历史，旧逻辑直接清空会丢全部轨迹；
+  // 连接成功/USB连接（persist=false）只清残留，避免把上个会话幽灵目标误存成此刻记录。
+  if(persist){
+    Object.keys(droneData).forEach(id=>{ try{ saveTrackToHistory(id); }catch(e){ console.warn('落历史失败',id,e); } });
+  }
   Object.keys(droneMarkers).forEach(id=>{
     map.remove(droneMarkers[id]);
     if(droneMarkers[id]._trailLine) map.remove(droneMarkers[id]._trailLine);
@@ -1914,8 +1916,8 @@ function onDisconnected(){
   // 关闭配对弹窗+清除超时计时器
   document.getElementById('pairOverlay').classList.remove('show');
   if(_pairTimer){clearTimeout(_pairTimer);_pairTimer=null}
-  // 清空目标列表为未连接空状态
-  clearAllDrones();
+  // 清空目标列表为未连接空状态；v3.2.0 断开时先落历史，避免丢轨迹
+  clearAllDrones(true);
   document.getElementById('targetListContainer').innerHTML='<div class="target-item" style="color:var(--text-secondary);justify-content:center">等待设备连接...</div>';
   // 重置地图中心标记为默认位置
   if(map && centerMarker){
@@ -2179,9 +2181,11 @@ function evlogIngest(reportedSent){
       avgRssi: avgRssi,
       lastRssi: (last.rssi!=null?last.rssi:null),
       channel: (last.ch===0?null:last.ch),
-      // v3.2.0: 补全字段
-      uaType: (typeof uaTypeCN==='function'?uaTypeCN(first.ut):('')),
-      isDji: !!((first.flags!==undefined)?(first.flags&1):(first.proto===1)),
+      // v3.2.0: 补全字段。注意：板载 evlog_rec JSON 只输出 proto 字符串(ASTM/ASD-STAN/GB42590/GB46750/Unknown)，
+      // 无 flags、无 ua_type；DJI 只能靠 SN 前缀/品牌识别（1581F），飞行器类型固件未记录故留空
+      uaType: '',
+      protocolText: first.proto || '',
+      isDji: bi.brand === 'DJI',
       battery: (last.bat!=null && last.bat!==0)?last.bat:null,
       maxSpeed: maxSpeed,
       opLatWgs: opWgsLat, opLonWgs: opWgsLon,
@@ -4127,6 +4131,7 @@ function saveTrackToHistory(id){
     // v3.2.0: 补全执法所需字段（历史记录信息不再缺失）
     uaType: d.ua_type || '',
     isDji: !!d.is_dji,
+    protocolText: d.is_dji ? 'DJI DroneID' : '标准RID',
     // 飞手坐标 WGS-84 原始值（与GCJ轨迹分开存）
     opLatWgs: (d.op_lat || null),
     opLonWgs: (d.op_lon || null),
@@ -4175,7 +4180,7 @@ function renderHistoryList(){
       const rssiN = rec.rssiHist ? rec.rssiHist.length : 0;
       const dur = (rec.firstSeen && rec.lastSeen) ? _fmtDur(rec.lastSeen - rec.firstSeen) : '--';
       const brandText = (rec.brand && rec.model) ? (rec.brand+' '+rec.model) : (rec.brand || (rec.isDji?'DJI':'未知'));
-      const typeText = rec.uaType ? String(rec.uaType) : '';
+      const typeText = rec.uaType ? String(rec.uaType) : (rec.protocolText||'');
       const batText = (rec.battery!==null && rec.battery!==undefined) ? rec.battery+'%' : '';
       const hasOp = (rec.opLatWgs||rec.opLat) && (rec.opLonWgs||rec.opLon);
       html += `<div class="hist-item">
