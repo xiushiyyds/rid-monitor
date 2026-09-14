@@ -2197,7 +2197,9 @@ function evlogIngest(reportedSent){
     // 预警：每个同步到的目标生成一条"发现无人机"（用第一条记录的真实时间）
     const already=_alertHistory.some(a=>a.type==='new' && a.sn===rec.sn && Math.abs(a.t-rec.firstSeen)<60000);
     if(!already){
-      const loc=trackPoints[0];
+      // v3.2.0: 预警坐标统一存 GCJ-02（APP内底图/轨迹/高德导航一致），仅导出表格/KML 时才反算 WGS-84。
+      // trackPoints[0] 已是 GCJ-02；围栏预警也同步改存 GCJ。
+      const gloc=trackPoints[0];
       _alertHistory.push({
         t: rec.firstSeen,
         type:'new',
@@ -2205,8 +2207,7 @@ function evlogIngest(reportedSent){
         rssi: (first.rssi!=null?first.rssi:null),
         zone:'', level:'离线同步',
         model: (bi.model||bi.brand||(isMac?'蓝牙/MAC目标':'未知')),
-        // loc 已是 GCJ-02，直接存
-        lat: loc?loc.lat:null, lon: loc?loc.lng:null, alt: loc?loc.alt:null
+        lat: gloc?gloc.lat:null, lon: gloc?gloc.lng:null, alt: gloc&&gloc.alt!=null?gloc.alt:null
       });
       alertCount++;
     }
@@ -2328,13 +2329,16 @@ function vibrate(pattern){
 }
 
 // 触发新目标提醒（声音+震动+横幅）
-function notifyNewTarget(sn, rssi, mac){
+function notifyNewTarget(sn, rssi, mac, coord){
   playNewTargetSound();
   vibrate([100, 50, 100]);
   const info = lookupSN(sn, mac);
   const model = info.model ? info.brand + ' ' + info.model : (info.brand || '未知型号');
   showTempBanner(`🛩️ 发现无人机：${model}${sn ? '（' + sn.substring(0,12) + (sn.length>12?'...':'') + '）' : ''}${rssi ? ' RSSI=' + rssi : ''}`, 'success', 4000);
-  try{ addAlertHistory('new', sn, {rssi:rssi, model:model}); }catch(e){}
+  // v3.2.0: 新目标预警也带坐标（GCJ-02），详情可直接高德导航；coord={lat,lon,alt}
+  const extra = {rssi:rssi, model:model};
+  if(coord && coord.lat!=null && coord.lon!=null){ extra.lat=coord.lat; extra.lon=coord.lon; if(coord.alt!=null) extra.alt=coord.alt; }
+  try{ addAlertHistory('new', sn, extra); }catch(e){}
 }
 
 // 触发围栏告警
@@ -2467,8 +2471,9 @@ function showAlertDetail(idx){
   let coordLine = '';
   if(a.lat !== null && a.lat !== undefined && a.lon !== null && a.lon !== undefined){
     const lat = Number(a.lat).toFixed(6), lon = Number(a.lon).toFixed(6);
-    coordLine = `<div class="d-field full"><div class="df-label">WGS-84 坐标</div><div class="df-value">${lat}, ${lon}
-      <a href="https://uri.amap.com/marker?position=${Number(a.lon).toFixed(6)},${Number(a.lat).toFixed(6)}&coordinate=wgs84&callnative=1" target="_blank" style="font-size:11px;color:#409eff;margin-left:8px">📍 在高德地图中查看</a></div></div>`;
+    // v3.2.0: 预警坐标统一 GCJ-02（与底图/轨迹一致），高德跳转 coordinate=gaode 不再二次转换
+    coordLine = `<div class="d-field full"><div class="df-label">位置（高德 GCJ-02）</div><div class="df-value">${lat}, ${lon}
+      <a href="https://uri.amap.com/marker?position=${Number(a.lon).toFixed(6)},${Number(a.lat).toFixed(6)}&coordinate=gaode&callnative=1" target="_blank" style="font-size:11px;color:#409eff;margin-left:8px">📍 在高德地图中查看</a></div></div>`;
   }
   const html = `<div class="detail-section">
       <div class="detail-section-title"><span class="icon" style="color:${colorMap[a.type]}">●</span> <span style="color:${colorMap[a.type]};font-weight:700">${titleMap[a.type]||'预警'}</span></div>
@@ -2992,7 +2997,7 @@ function parseResp(text){
         // v2.2.12: 仅在首次发现新目标时触发提醒（uav_status 是周期更新，不提醒）
         if(_isNew && msg.evt === 'uav_discovery' && !_alertedHas(id)){
           _alertedAdd(id);
-          notifyNewTarget(droneData[id].sn || id, droneData[id].rssi, droneData[id]._lastMAC);
+          notifyNewTarget(droneData[id].sn || id, droneData[id].rssi, droneData[id]._lastMAC, {lat:droneData[id].gcj_lat, lon:droneData[id].gcj_lon, alt:droneData[id].alt});
         }
         return;
       }
@@ -3114,7 +3119,7 @@ function parseResp(text){
         if(_justCreated && !droneData[id]._notified){
           droneData[id]._notified = true;
           _alertedAdd(id);
-          notifyNewTarget(droneData[id].sn || id, msg.rssi, droneData[id]._lastMAC || msg.mac);
+          notifyNewTarget(droneData[id].sn || id, msg.rssi, droneData[id]._lastMAC || msg.mac, {lat:droneData[id].gcj_lat, lon:droneData[id].gcj_lon, alt:droneData[id].alt});
         }
         // v2.2.12: 围栏告警（解析 JSON 结构化字段，不依赖 ALERT: 文本）
         if(msg.geofence && msg.geofence.alert){
@@ -3128,8 +3133,9 @@ function parseResp(text){
             droneData[id]._lastAlertLevel = gf.level;
             notifyGeofence(droneData[id].sn || id, gf.zone, gf.level_name || ('level '+gf.level), {
               rssi: msg.rssi,
-              lat: droneData[id].wgs_lat,
-              lon: droneData[id].wgs_lon,
+              // v3.2.0: 预警统一存 GCJ-02（APP内查看/高德导航用），导出时再反算 WGS-84
+              lat: droneData[id].gcj_lat,
+              lon: droneData[id].gcj_lon,
               alt: droneData[id].alt
             });
           }
@@ -3393,7 +3399,7 @@ ${alertRows ? `<table><tr><th>序号</th><th>时间</th><th>事件</th><th>告�
 <tr><td style="border:1px solid #999;padding:6px 10px">侦测目标总数</td><td style="border:1px solid #999;padding:6px 10px">${ids.length} 架</td>
     <td style="border:1px solid #999;padding:6px 10px">累计轨迹点数</td><td style="border:1px solid #999;padding:6px 10px">${totalTracks} 个</td></tr>
 <tr><td style="border:1px solid #999;padding:6px 10px">最强信号RSSI</td><td style="border:1px solid #999;padding:6px 10px">${maxRssi > -200 ? maxRssi+' dBm' : '—'}</td>
-    <td style="border:1px solid #999;padding:6px 10px">围栏告警数</td><td style="border:1px solid #999;padding:6px 10px">${(typeof _alertHistory!=='undefined')?_alertHistory.filter(a=>a.type==='geofence').length:0} 次</td></tr>
+    <td style="border:1px solid #999;padding:6px 10px">围栏告警数</td><td style="border:1px solid #999;padding:6px 10px">${(typeof _alertHistory!=='undefined')?_alertHistory.filter(a=>a.type==='geo').length:0} 次</td></tr>
 </table>
 
 <div class="footer">
