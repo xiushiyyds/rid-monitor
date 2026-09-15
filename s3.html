@@ -629,7 +629,7 @@ function gcj02ToWgs84(lng,lat){
 }
 
 // ============ 网页/APP 版本号（每次发版改这里，状态栏常驻显示）============
-const APP_VERSION = 'v3.2.1';
+const APP_VERSION = 'v3.2.2';
 
 // ============ SN 前缀 → 品牌/型号映射 ============
 // v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
@@ -841,41 +841,41 @@ let accuracyCircle=null;  // GPS精度圆圈
 // v2.2.16: 侦测设备自身 WGS-84 坐标（用于方位/距离计算和连线）
 let selfWgsLat=null, selfWgsLon=null, selfGpsValid=false;
 let phoneGpsOn=false, phoneGpsWatchId=null, phoneGpsAccuracy=null;
-let boardGpsValid=false, boardGpsLat=null, boardGpsLon=null;  // 板子GPS（如果有则优先）
+let phoneFixValid=false;   // v3.2.1: 手机GPS已拿到有效定位（独立于selfGpsValid）
+let boardGpsValid=false, boardGpsLat=null, boardGpsLon=null;  // 板子GPS（仅在手机未定位时兜底）
 const GPS_SRC_BOARD='板子', GPS_SRC_PHONE='手机', GPS_SRC_NONE='无';
-function gpsSource(){ return boardGpsValid?GPS_SRC_BOARD:(phoneGpsOn&&selfGpsValid?GPS_SRC_PHONE:GPS_SRC_NONE); }
+// v3.2.1: 优先级反转——手机GPS有效就以手机为准（模块搜星不稳也不影响），板子仅作手机未定位时兜底
+function gpsSource(){ return (phoneGpsOn&&phoneFixValid)?GPS_SRC_PHONE:(boardGpsValid?GPS_SRC_BOARD:GPS_SRC_NONE); }
 
-function togglePhoneGps(){
+// v3.2.1: 真正开启手机GPS（默认自动调用；高精度模式）
+function startPhoneGps(){
   if(!navigator.geolocation){ addLog('warn','[GPS] 浏览器不支持定位'); return; }
-  if(phoneGpsOn){
-    navigator.geolocation.clearWatch(phoneGpsWatchId);
-    phoneGpsOn=false; phoneGpsWatchId=null;
-    // 如果板子也没定位，清空自身位置
-    if(!boardGpsValid){ selfWgsLat=null; selfWgsLon=null; selfGpsValid=false; }
-    else { selfWgsLat=boardGpsLat; selfWgsLon=boardGpsLon; selfGpsValid=true; }
-    updateGpsStat();
-    addLog('info','[GPS] 手机定位已关闭');
-    return;
-  }
+  if(phoneGpsOn && phoneGpsWatchId!==null) return;  // 已在监听，不重复申请（避免重复弹窗/重复watch）
   addLog('info','[GPS] 正在请求手机定位...');
   phoneGpsOn=true;
   phoneGpsWatchId = navigator.geolocation.watchPosition(
     (pos)=>{
       const lat=pos.coords.latitude, lon=pos.coords.longitude;
       phoneGpsAccuracy = pos.coords.accuracy;
-      // 板子GPS优先，手机GPS作为备用
-      if(!boardGpsValid){
-        const sm0=gpsSmoothPush(lat,lon);
-        selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
-        updateSelfMarker();
-        updateGpsStat();
-      }
+      // v3.2.1: 手机一旦定位成功即以手机为准（不再受板子有无定位影响）；内部仍存 WGS-84，上图转GCJ、导出反算WGS
+      phoneFixValid=true;
+      if(_appliedGpsSrc!==GPS_SRC_PHONE){ gpsSmoothReset(); _appliedGpsSrc=GPS_SRC_PHONE; }
+      const sm0=gpsSmoothPush(lat,lon);
+      selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
+      updateSelfMarker();
+      updateGpsStat();
       addLog('success',`[GPS] 手机定位: ${lat.toFixed(6)},${lon.toFixed(6)} 精度±${Math.round(pos.coords.accuracy)}m`);
     },
     (err)=>{
-      phoneGpsOn=false;
-      const msg = err.code===1?'用户拒绝定位权限':(err.code===2?'定位不可用':(err.code===3?'定位超时':err.message));
-      addLog('error',`[GPS] 手机定位失败: ${msg}`);
+      // 定位失败时不永久关闭监听（系统可能在进室内/遮挡后暂时拿不到星，恢复后能自动续上）；仅标记本次无有效定位
+      phoneFixValid=false;
+      if(err && err.code===1){
+        // 权限被拒绝才真正停止，等用户手动再开
+        try{ if(phoneGpsWatchId!==null) navigator.geolocation.clearWatch(phoneGpsWatchId); }catch(e){}
+        phoneGpsOn=false; phoneGpsWatchId=null;
+      }
+      const msg = err.code===1?'用户拒绝定位权限':(err.code===2?'定位不可用':(err.code===3?'定位超时（请到开阔处）':err.message));
+      addLog('warn',`[GPS] 手机定位: ${msg}`);
       updateGpsStat();
     },
     { enableHighAccuracy:true, timeout:15000, maximumAge:3000 }
@@ -883,12 +883,33 @@ function togglePhoneGps(){
   updateGpsStat();
 }
 
+function togglePhoneGps(){
+  if(!navigator.geolocation){ addLog('warn','[GPS] 浏览器不支持定位'); return; }
+  if(phoneGpsOn){
+    try{ navigator.geolocation.clearWatch(phoneGpsWatchId); }catch(e){}
+    phoneGpsOn=false; phoneGpsWatchId=null; phoneFixValid=false;
+    gpsSmoothReset();
+    // 手机关了：板子有效则回落板子，否则清空自身位置
+    if(boardGpsValid){ selfWgsLat=boardGpsLat; selfWgsLon=boardGpsLon; selfGpsValid=true; }
+    else { selfWgsLat=null; selfWgsLon=null; selfGpsValid=false; }
+    updateSelfMarker();
+    updateGpsStat();
+    addLog('info','[GPS] 手机定位已关闭');
+    return;
+  }
+  startPhoneGps();
+}
+
 function updateGpsStat(){
   const el = document.getElementById('gpsStat');
   if(!el) return;
   const src = gpsSource();
-  if(src===GPS_SRC_NONE){
-    el.innerHTML = 'GPS: <span class="val" style="color:var(--text-dim)">点击开启</span>';
+  if(phoneGpsOn && !phoneFixValid){
+    // 手机定位已自动开启、正在等第一颗星
+    el.innerHTML = '📍 <span class="val" style="color:var(--orange)">手机定位中…</span>';
+    el.style.opacity='1';
+  } else if(src===GPS_SRC_NONE){
+    el.innerHTML = 'GPS: <span class="val" style="color:var(--text-dim)">定位中…</span>';
     el.style.opacity='0.7';
   } else if(src===GPS_SRC_BOARD){
     el.innerHTML = '📡 板子GPS';
@@ -968,24 +989,40 @@ function gpsSmoothPush(lat, lon) {
   }
   return {lat:avgLat, lon:avgLon, count:gpsWindow.length, spread};
 }
+// v3.2.1: 切换GPS数据源（手机<->板子/关闭）时清空平滑窗，避免新旧位置被一起平均
+function gpsSmoothReset(){ gpsWindow.length=0; }
 
 // ============ v2.6.8: 统一处理板子GPS UI更新 ============
 // 被 SELF_GPS: 文本行 和 status JSON 内嵌 gps_* 字段两条通道共同调用
+let _appliedGpsSrc=GPS_SRC_NONE;  // v3.2.1: 记录当前实际采用的数据源，切换时清空平滑窗
 function updateBoardGpsUI(lat, lon, alt, sats, hdop, valid) {
+  const phoneActive = phoneGpsOn && phoneFixValid;  // 手机已有效定位 → 以手机为准
   if(valid){
     boardGpsValid=true; boardGpsLat=lat; boardGpsLon=lon;
+    if(phoneActive){
+      // 手机GPS在用，板子只记录不覆盖位置；状态栏仍由手机数据刷新
+      updateGpsStat();
+      return;
+    }
+    if(_appliedGpsSrc!==GPS_SRC_BOARD) gpsSmoothReset();
+    _appliedGpsSrc=GPS_SRC_BOARD;
     const sm0=gpsSmoothPush(lat,lon);
     selfWgsLat=sm0.lat; selfWgsLon=sm0.lon; selfGpsValid=true;
   } else {
     boardGpsValid=false; boardGpsLat=null; boardGpsLon=null;
-    if(phoneGpsOn && selfGpsValid){
-      // 手机GPS在用，保持
+    if(phoneActive){
+      // 板子没星但手机正常，保持手机位置
+      _appliedGpsSrc=GPS_SRC_PHONE;
+    } else if(phoneGpsOn){
+      // 手机在请求但还没拿到定位：暂时清空，等手机回调
+      selfWgsLat=null; selfWgsLon=null; selfGpsValid=false;
     } else {
+      _appliedGpsSrc=GPS_SRC_NONE;
       selfWgsLat=null; selfWgsLon=null; selfGpsValid=false;
     }
   }
   updateGpsStat();
-  if(valid && map && centerMarker){
+  if(valid && !phoneActive && map && centerMarker){
     const sm = gpsWindow.length ? {lat:selfWgsLat, lon:selfWgsLon, spread: (function(){
       let mx=0; gpsWindow.forEach(p=>{const d=calcDistanceM(p.lat,p.lon,selfWgsLat,selfWgsLon);if(d>mx)mx=d;});return mx;
     })()} : {lat,lon,spread:0};
@@ -4737,6 +4774,8 @@ function initV230(){
 window.addEventListener('load',()=>{
   initMap();startStaleCleanTimer();initV230();
   setTimeout(updateGpsStat,500);
+  // v3.2.1: 默认直接使用手机GPS（模块搜星不稳也不影响）；壳已授定位权限，进APP即自动请求高精度定位
+  setTimeout(function(){ try{ startPhoneGps(); }catch(e){ console.warn('auto phone gps', e); } }, 800);
   try{const v=localStorage.getItem('rid_fw_ver');if(v)document.getElementById('firmwareVer').textContent=v;}catch(e){}
   try{const av=document.getElementById('appVer');if(av)av.textContent=APP_VERSION;}catch(e){}
   try{ evlogRenderSyncTime(); }catch(e){}
