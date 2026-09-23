@@ -629,7 +629,7 @@ function gcj02ToWgs84(lng,lat){
 }
 
 // ============ 网页/APP 版本号（每次发版改这里，状态栏常驻显示）============
-const APP_VERSION = 'v3.2.3';
+const APP_VERSION = 'v3.2.4';
 
 // ============ SN 前缀 → 品牌/型号映射 ============
 // v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
@@ -2286,8 +2286,11 @@ function evlogExportCSV(){
   _downloadFile(csv, `板载执勤记录_${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.csv`, 'text/csv;charset=utf-8');
   addLog('success', `[板载记录] 板载记录已导出为 CSV（${evlogRecords.length} 条）`);
 }
+let _bleDecoder = null; // v3.2.4: 流式 UTF-8 解码器，跨 notify 包的中文字节不被切断
 function onBleData(e){
-  const chunk=new TextDecoder().decode(e.target.value);
+  if(!_bleDecoder) _bleDecoder = new TextDecoder('utf-8');
+  // stream:true：若多字节中文被 notify 包边界切开，残留字节留到下一包拼，避免 ?/� 乱码
+  const chunk=_bleDecoder.decode(e.target.value,{stream:true});
   _bleBuffer+=chunk;
   // 按换行拆包，最后一段可能不完整则留在buffer
   const lines=_bleBuffer.split('\n');
@@ -2970,14 +2973,29 @@ function parseResp(text){
           if(t.protocol) droneData[id].protocol = t.protocol;
           droneData[id]._lastSeen = now;
 
-          // 若此前以该 MAC 建过临时条目，迁移到 SN
+          // 若此前以该 MAC 建过临时条目，完整迁移到 SN（与 uav_update 同口径，避免数据/标记丢失或残留重复）
           if(sn && droneData[macId] && macId !== id){
             const old = droneData[macId];
             if(old.history && old.history.length){
               if(!droneData[id].history) droneData[id].history = [];
-              droneData[id].history = droneData[id].history.concat(old.history);
+              droneData[id].history = old.history.concat(droneData[id].history||[]);
+              if(droneData[id].history.length > 100) droneData[id].history = droneData[id].history.slice(-100);
             }
-            try{ removeTarget(macId); }catch(e){}
+            // 迁移地图标记/轨迹/飞手标记（仅当 SN 侧还没有时）
+            if(droneMarkers[macId] && !droneMarkers[id]) droneMarkers[id] = droneMarkers[macId];
+            else if(droneMarkers[macId]) map.remove(droneMarkers[macId]);
+            delete droneMarkers[macId];
+            if(droneTrails[macId] && !droneTrails[id]) droneTrails[id] = droneTrails[macId];
+            delete droneTrails[macId];
+            if(operatorMarkers[macId] && !operatorMarkers[id]) operatorMarkers[id] = operatorMarkers[macId];
+            else if(operatorMarkers[macId]) map.remove(operatorMarkers[macId]);
+            delete operatorMarkers[macId];
+            // 补充 SN 侧缺失的其余字段
+            Object.keys(old).forEach(k=>{
+              if(k!=='history' && k!=='_macs' && droneData[id][k]===undefined) droneData[id][k]=old[k];
+            });
+            delete droneData[macId];
+            addLog('info','[合并(sync)] MAC '+t.mac+' → SN '+sn);
           }
 
           const hasCoord = (t.lat !== undefined && t.lon !== undefined && (t.lat !== 0 || t.lon !== 0));
