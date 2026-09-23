@@ -629,7 +629,7 @@ function gcj02ToWgs84(lng,lat){
 }
 
 // ============ 网页/APP 版本号（每次发版改这里，状态栏常驻显示）============
-const APP_VERSION = 'v3.2.2';
+const APP_VERSION = 'v3.2.3';
 
 // ============ SN 前缀 → 品牌/型号映射 ============
 // v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
@@ -2945,6 +2945,78 @@ function parseResp(text){
         document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
         document.getElementById('mapTargetCount').textContent = Object.keys(droneData).length;
         document.getElementById('targetListCount').textContent = Object.keys(droneData).length;
+        return;
+      }
+      // v3.2.3: 板端权威全量快照。补建漏目标 + 为在板目标续命，防止本地误超时。
+      if(msg.evt === 'uav_sync' && Array.isArray(msg.targets)){
+        const now = Date.now();
+        const present = {};
+        msg.targets.forEach(t=>{
+          if(!t || !t.mac) return;
+          const macId = 'MAC_'+t.mac;
+          const sn = (t.sn && t.sn.length > 0) ? t.sn : null;
+          const id = sn || macId;
+
+          if(!droneData[id]){
+            droneData[id] = { history: [], _macs: {}, _firstSeen: now };
+          }
+          if(!droneData[id]._macs) droneData[id]._macs = {};
+          droneData[id]._macs[t.mac] = now;
+          droneData[id]._lastMAC = t.mac;
+          if(sn) droneData[id].sn = sn;
+          if(t.rssi !== undefined) droneData[id].rssi = t.rssi;
+          if(t.channel !== undefined) droneData[id].channel = t.channel;
+          if(t.transport) droneData[id].transport = t.transport;
+          if(t.protocol) droneData[id].protocol = t.protocol;
+          droneData[id]._lastSeen = now;
+
+          // 若此前以该 MAC 建过临时条目，迁移到 SN
+          if(sn && droneData[macId] && macId !== id){
+            const old = droneData[macId];
+            if(old.history && old.history.length){
+              if(!droneData[id].history) droneData[id].history = [];
+              droneData[id].history = droneData[id].history.concat(old.history);
+            }
+            try{ removeTarget(macId); }catch(e){}
+          }
+
+          const hasCoord = (t.lat !== undefined && t.lon !== undefined && (t.lat !== 0 || t.lon !== 0));
+          if(hasCoord){
+            droneData[id]._noLoc = false;
+            const alt = (t.height !== undefined && t.height !== 0) ? t.height : (t.alt_baro || 0);
+            updateDroneOnMap(id, t.lat, t.lon, alt,
+              (t.speed_h||0).toFixed(1), (t.direction||0).toFixed(0),
+              id, null, null, '多旋翼');
+            if(droneData[id]){
+              droneData[id].alt_baro = t.alt_baro || 0;
+              droneData[id]._rel_alt = (t.height !== undefined ? t.height : null);
+              droneData[id]._has_rel = !!(t.height);
+            }
+          } else {
+            droneData[id]._noLoc = true;
+          }
+
+          if(t.dji){
+            droneData[id].is_dji = true;
+            if(t.dji.serial) droneData[id].dji_serial = t.dji.serial;
+            if(t.dji.model) droneData[id].dji_model = t.dji.model;
+            if(t.dji.product_type !== undefined) droneData[id].dji_model_code = t.dji.product_type;
+          }
+
+          // 快照补建的目标也提醒一次（真正遗漏时用户能感知）
+          if(!droneData[id]._notified){
+            droneData[id]._notified = true;
+            _alertedAdd(id);
+            notifyNewTarget(droneData[id].sn || id, droneData[id].rssi, t.mac,
+              {lat:droneData[id].gcj_lat, lon:droneData[id].gcj_lon, alt:droneData[id].alt});
+          }
+          present[id] = true;
+        });
+
+        document.getElementById('activeTargets').textContent = Object.keys(droneData).length;
+        const mc = document.getElementById('mapTargetCount'); if(mc) mc.textContent = Object.keys(droneData).length;
+        const tlc = document.getElementById('targetListCount'); if(tlc) tlc.textContent = Object.keys(droneData).length;
+        updateTargetList('');
         return;
       }
       // v2.0.5: 固件主动通知目标超时（30s无信号），立即从地图移除
