@@ -629,7 +629,7 @@ function gcj02ToWgs84(lng,lat){
 }
 
 // ============ 网页/APP 版本号（每次发版改这里，状态栏常驻显示）============
-const APP_VERSION = 'v3.2.4';
+const APP_VERSION = 'v3.2.5';
 
 // ============ SN 前缀 → 品牌/型号映射 ============
 // v2.2.12: 补全 DroneScanner 参考项目的 46 条 DJI 1581F 前缀 + Autel
@@ -1556,7 +1556,7 @@ function showDetail(id) {
     setTimeout(()=>{
       const qrCanvas = document.getElementById(`qrOp_${id}`);
       if(qrCanvas) {
-        const [oLng,oLat] = wgs84ToGcj02(d.op_lon, d.op_lon);
+        const [oLng,oLat] = wgs84ToGcj02(d.op_lon, d.op_lat);
         const amapUrl = `https://uri.amap.com/marker?position=${oLng.toFixed(6)},${oLat.toFixed(6)}&name=${encodeURIComponent('飞手位置')}&coordinate=gaode&callnative=1`;
         generateQR(qrCanvas, amapUrl, 80);
       }
